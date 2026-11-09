@@ -1,0 +1,16 @@
+name: manifests
+on:
+  push:
+  pull_request:
+jobs:
+  core-sites-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject raw hook sites
+        run: |
+          if found=$(grep -rlE --include=manifest.toml '^[[:space:]]*\[\[site\]\]' .); then
+            echo "raw sites in first-party manifests; add a core site instead:"
+            echo "$found"
+            exit 1
+          fi
