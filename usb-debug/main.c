@@ -20,7 +20,6 @@
 #include "rv_firmware.h"
 #include "rv_sites.h"
 #include "rv_ui.h"
-#include <stddef.h>
 
 #define PROTOCOL_VERSION 1
 #define MAX_TRANSFER 4096
@@ -161,7 +160,7 @@ static void *info(void)
     b->firmware = RV_FIRMWARE_ID;
     b->max_transfer = MAX_TRANSFER;
     b->display = DISPLAY_PIPE_BASE;
-    if (api->size > offsetof(struct rv_api, debug_info)) {
+    if (RV_HAS(api, debug_info)) {
         const struct rv_debug_info *d = api->debug_info();
         b->core_build = d->core_build;
         b->heap_total = word(d->heap, MainHeap_total_bytes);
