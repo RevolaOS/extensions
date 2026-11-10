@@ -85,7 +85,6 @@ static volatile uint8_t pending_stack, pending_fault, pending_reset, pending_flu
 static uint8_t fault_kind;
 static uint8_t flush_mode;      /* FLUSH_THEN_RESET */
 static uint16_t flush_delay;    /* 100 µs units from the flush's start to the reset */
-static volatile uint8_t irq_bound;
 static volatile uint8_t reset_armed;
 static uint32_t reset_at;       /* µs */
 
@@ -283,21 +282,16 @@ static const struct rv_hook irq_hook = RV_HOOK_FILTER(RV_SITE_IRQ_Dispatch_entry
 
 static int irq_bind(void)
 {
-    if (!irq_bound) {
-        if (api->hook_bind(self, &irq_hook) != RV_OK)
-            return 0;
-        irq_bound = 1;
-    }
-    return 1;
+    int result = api->hook_bind(self, &irq_hook);
+    return result == RV_OK || result == RV_ALREADY_BOUND;
 }
 
-/* An armed reset keeps the hook until it fires. */
+/* An armed reset keeps the hook until it fires. RV_NOT_BOUND when neither
+ * user bound it is fine. */
 static void irq_unbind_unused(void)
 {
-    if (irq_bound && !ring && !reset_armed) {
+    if (!ring && !reset_armed)
         api->hook_unbind(self, &irq_hook);
-        irq_bound = 0;
-    }
 }
 
 /* No IRQ handler can be running while a task runs, so the ring is free once
