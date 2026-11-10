@@ -19,6 +19,7 @@
 #include "rv_api.h"
 #include "rv_firmware.h"
 #include "rv_sites.h"
+#include "rv_ui.h"
 #include <stddef.h>
 
 #define PROTOCOL_VERSION 1
@@ -60,7 +61,7 @@ struct ring {
 };
 
 static const struct rv_api *api;
-static rv_handle self;
+static rv_extension_handle self;
 static void *reply; /* the last IN reply the controller may still be sending */
 static volatile uint8_t stopping; /* set by unload, which runs while the hooks are bound */
 static uint32_t write_address;
@@ -225,10 +226,10 @@ static uint32_t on_irq(uint32_t *frame, const void *next)
             }
         }
     }
-    return api->next(next, (uint32_t)frame, 0, 0, 0, 0, 0);
+    return api->hook_next(next, (uint32_t)frame, 0, 0, 0, 0, 0);
 }
 
-static const struct rv_hook irq_hook = {RV_SITE_IRQ_Dispatch_entry, RV_HOOK_FILTER, 0, 0, on_irq};
+static const struct rv_hook irq_hook = RV_HOOK_FILTER(RV_SITE_IRQ_Dispatch_entry, on_irq);
 
 /* No IRQ handler can be running while a task runs, so the ring is free once
  * it is unpublished and the hook unbound. */
@@ -336,14 +337,13 @@ static void record(const void *view, const uint8_t *context, const char *text)
 
 static uint32_t on_draw(uint8_t *view, const char *text, uint32_t argument, const void *next)
 {
-    uint32_t result = api->next(next, (uint32_t)view, (uint32_t)text, argument, 0, 0, 0);
+    uint32_t result = api->hook_next(next, (uint32_t)view, (uint32_t)text, argument, 0, 0, 0);
     if (text)
         record(view, view + TextView_context, text);
     return result;
 }
 
-static const struct rv_hook draw_hook = {RV_SITE_TextView_DrawString_entry, RV_HOOK_FILTER, 0, 0,
-                                         on_draw};
+static const struct rv_hook draw_hook = RV_HOOK_FILTER(RV_SITE_TextView_DrawString_entry, on_draw);
 
 static void capture_done(void)
 {
@@ -497,7 +497,7 @@ static uint32_t on_vendor_in(uint8_t *usb, uint32_t *length, const void *next)
     void *data;
     int result = handle(setup_of(usb), &data, length, word(usb, USBDevice_max_packet));
     if (result < 0)
-        return api->next(next, (uint32_t)usb, (uint32_t)length, 0, 0, 0, 0);
+        return api->hook_next(next, (uint32_t)usb, (uint32_t)length, 0, 0, 0, 0);
     return result ? (uint32_t)data : 0;
 }
 
@@ -509,7 +509,7 @@ static uint32_t on_no_data(uint8_t *usb, const void *next)
     void *data;
     int result = s->type == VENDOR_OUT ? handle(s, &data, &length, 0) : -1;
     if (result < 0)
-        return api->next(next, (uint32_t)usb, 0, 0, 0, 0, 0);
+        return api->hook_next(next, (uint32_t)usb, 0, 0, 0, 0, 0);
     return result;
 }
 
@@ -577,20 +577,19 @@ static void unload(void)
 }
 
 static const struct rv_hook hooks[] = {
-    {RV_SITE_USB_HandleVendorDeviceRead_call, RV_HOOK_FILTER, 0, 0, on_vendor_in},
-    {RV_SITE_USB_DispatchNoDataRequest_call, RV_HOOK_FILTER, 0, 0, on_no_data},
-    {RV_SITE_DiskClient_Yield_slot, RV_HOOK_REPLACE, 0, 0, refuse_yield},
+    RV_HOOK_FILTER(RV_SITE_USB_HandleVendorDeviceRead_call, on_vendor_in),
+    RV_HOOK_FILTER(RV_SITE_USB_DispatchNoDataRequest_call, on_no_data),
+    RV_HOOK_REPLACE(RV_SITE_DiskClient_Yield_slot, refuse_yield),
 };
 
-static const struct rv_extension extension = {
+static const struct rv_descriptor extension = {
     .size = sizeof extension,
-    .hooks = hooks,
-    .hook_count = sizeof hooks / sizeof hooks[0],
+    RV_HOOKS(hooks),
     .unload = unload,
 };
 
 /* Runs on the UI task, so the timers post their events to its queue. */
-const struct rv_extension *rvx_entry(const struct rv_api *core, rv_handle handle)
+const struct rv_descriptor *rv_module_entry(const struct rv_api *core, rv_extension_handle handle)
 {
     api = core;
     self = handle;
