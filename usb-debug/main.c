@@ -21,22 +21,32 @@
 #include "rv_sites.h"
 #include "rv_ui.h"
 
-#define PROTOCOL_VERSION 1
+#define PROTOCOL_VERSION 2
 #define MAX_TRANSFER 4096
 #define INFO_BYTES 64
 #define SCREEN_BYTES 2048
 #define SCREEN_RECORD 17     /* bytes of a record before its text */
-#define CAPTURE_MS 50        /* from arming to binding, and from binding to ready */
+#define CAPTURE_MS 50        /* period of `timer`: capture steps and queued work, RESET too */
 #define DISPLAY_WINDOW 0x1000 /* the display pipe's register window */
 #define CACHE_LINE 32
 #define LIFT_THRESHOLD 6     /* what Wheel_HandleInterrupt stores on lift */
 #define PADDING 4
+#define CLOCK_HZ 1000000     /* Clock_GetMicroseconds */
+#define STACK_MARGIN 512     /* left unfilled below the stack pointer */
+#define STACK_PATTERN 0x4b415453u /* "STAK" */
+#define FLUSH_KEY 1          /* setting the FLUSH sequence number is stored in */
 
 #define VENDOR_IN 0xc0
 #define VENDOR_OUT 0x40
-enum { INFO = 0xd0, READ, SET_ADDRESS, WRITE32, INPUT, PROFILE, SAMPLES, SCREEN, SCREEN_DATA };
+enum {
+    INFO = 0xd0, READ, SET_ADDRESS, WRITE32, INPUT, PROFILE, SAMPLES, SCREEN, SCREEN_DATA,
+    CLOCK, BOOT, HEAP_WATCH, HEAP_STATS, STACK, FAULT, RESET, FLUSH,
+    LAST_REQUEST = FLUSH
+};
 enum { INPUT_BUTTONS = 1, INPUT_TOUCH, INPUT_LIFT };
 enum { CAPTURE_IDLE, CAPTURE_ARMED, CAPTURE_BOUND, CAPTURE_READY };
+enum { FAULT_UNDEFINED = 1, FAULT_ABORT };
+#define FLUSH_THEN_RESET 1
 
 struct setup {
     uint8_t type;
@@ -56,8 +66,9 @@ struct ring {
     uint32_t slots;
     uint32_t dropped;  /* IRQ only, running count */
     uint32_t reported; /* USB task only: dropped at the last drain */
-    uint32_t samples[]; /* (pc, lr) per slot */
+    uint32_t samples[]; /* (pc, lr, µs) per slot */
 };
+#define SAMPLE_WORDS 3
 
 static const struct rv_api *api;
 static rv_extension_handle self;
@@ -68,6 +79,31 @@ static struct ring *volatile ring;
 static uint8_t *screen; /* SCREEN_BYTES, while a capture is pending or unread */
 static volatile uint8_t capture;
 static uint32_t timer[EventTimer_bytes / 4];
+/* Work a request leaves for the UI task, done at the next tick of `timer`. Each
+ * flag is set by the USB task and cleared by the UI task before the work. */
+static volatile uint8_t pending_stack, pending_fault, pending_reset, pending_flush;
+static uint8_t fault_kind;
+static uint8_t flush_mode;      /* FLUSH_THEN_RESET */
+static uint16_t flush_delay;    /* 100 µs units from the flush's start to the reset */
+static volatile uint8_t irq_bound;
+static volatile uint8_t reset_armed;
+static uint32_t reset_at;       /* µs */
+
+/* µs at the entry, at the first main menu and at the first tick of a UI timer
+ * started at the entry; the FLUSH sequence number the settings held at the
+ * entry and the last one written. */
+static struct {
+    uint32_t entry, main_menu, first_idle, flush_at_boot, flush_written;
+} boot;
+
+static const void *heap_object;
+static uint32_t heap_timer[EventTimer_bytes / 4];
+static volatile uint32_t heap_period; /* ms, 0 when not watching */
+static struct {
+    uint32_t samples, latest, min, max;
+} heap;
+
+static uint32_t stack_base, stack_top; /* the UI stack filled from base to top; 0 when not */
 
 static uint32_t word(const void *base, uint32_t offset)
 {
@@ -146,7 +182,8 @@ struct info {
     uint32_t heap_free;
     uint32_t extensions;
     uint16_t record[6]; /* next, owner, file, live, peak, failure */
-    uint32_t unused[4];
+    uint32_t clock_hz;
+    uint32_t unused[3];
 };
 _Static_assert(sizeof(struct info) == INFO_BYTES, "INFO is 64 bytes");
 
@@ -160,6 +197,7 @@ static void *info(void)
     b->firmware = RV_FIRMWARE_ID;
     b->max_transfer = MAX_TRANSFER;
     b->display = DISPLAY_PIPE_BASE;
+    b->clock_hz = CLOCK_HZ;
     if (RV_HAS(api, debug_info)) {
         const struct rv_debug_info *d = api->debug_info();
         b->core_build = d->core_build;
@@ -205,22 +243,35 @@ static int input(uint32_t kind, uint32_t argument)
     return 1;
 }
 
-/* Profiler: every IRQ passes through IRQ_Dispatch with the interrupted task's
- * frame; tasks run in SVC mode, so its banked LR is the task's. */
+/* The IRQ hook serves the profiler and a reset armed by FLUSH. Every IRQ
+ * passes through IRQ_Dispatch with the interrupted task's frame; tasks run in
+ * SVC mode, so its banked LR is the task's. */
+
+/* SetWarmBootModeTag only copies the tag, so this also runs in an IRQ. */
+RV_ARM static void reset_now(void)
+{
+    SetWarmBootModeTag(WarmBootMode_None);
+    ResetSocAndWait();
+}
 
 static uint32_t on_irq(uint32_t *frame, const void *next)
 {
+    uint32_t now = Clock_GetMicroseconds();
+    if (reset_armed && (int32_t)(now - reset_at) >= 0)
+        reset_now();
     struct ring *r = ring;
     if (r) {
-        uint32_t now = Clock_GetMicroseconds(), elapsed = now - r->last;
+        uint32_t elapsed = now - r->last;
         if (elapsed >= 1000000 || elapsed * r->rate >= 1000000) {
             uint32_t head = r->head, following = head + 1 == r->slots ? 0 : head + 1;
             r->last = now;
             if (following == r->tail) {
                 r->dropped++;
             } else {
-                r->samples[head * 2] = frame[IRQFrame_pc / 4];
-                r->samples[head * 2 + 1] = frame[IRQFrame_lr / 4];
+                uint32_t *slot = r->samples + head * SAMPLE_WORDS;
+                slot[0] = frame[IRQFrame_pc / 4];
+                slot[1] = frame[IRQFrame_lr / 4];
+                slot[2] = now;
                 r->head = following;
             }
         }
@@ -230,6 +281,25 @@ static uint32_t on_irq(uint32_t *frame, const void *next)
 
 static const struct rv_hook irq_hook = RV_HOOK_FILTER(RV_SITE_IRQ_Dispatch_entry, on_irq);
 
+static int irq_bind(void)
+{
+    if (!irq_bound) {
+        if (api->hook_bind(self, &irq_hook) != RV_OK)
+            return 0;
+        irq_bound = 1;
+    }
+    return 1;
+}
+
+/* An armed reset keeps the hook until it fires. */
+static void irq_unbind_unused(void)
+{
+    if (irq_bound && !ring && !reset_armed) {
+        api->hook_unbind(self, &irq_hook);
+        irq_bound = 0;
+    }
+}
+
 /* No IRQ handler can be running while a task runs, so the ring is free once
  * it is unpublished and the hook unbound. */
 static void profile_stop(void)
@@ -238,7 +308,7 @@ static void profile_stop(void)
     if (!r)
         return;
     ring = 0;
-    api->hook_unbind(self, &irq_hook);
+    irq_unbind_unused();
     api->free(self, r);
 }
 
@@ -249,14 +319,14 @@ static int profile(uint32_t rate, uint32_t entries)
         return 1;
     if (!rate || !entries)
         return 0;
-    struct ring *r = api->alloc(self, sizeof *r + (entries + 1) * 8);
+    struct ring *r = api->alloc(self, sizeof *r + (entries + 1) * SAMPLE_WORDS * 4);
     if (!r)
         return 0;
     r->rate = rate;
     r->slots = entries + 1;
     r->last = Clock_GetMicroseconds();
     ring = r;
-    if (api->hook_bind(self, &irq_hook) != RV_OK) {
+    if (!irq_bind()) {
         ring = 0;
         api->free(self, r);
         return 0;
@@ -271,19 +341,19 @@ static void *samples(uint32_t capacity)
     if (r) {
         uint32_t head = r->head;
         count = head >= r->tail ? head - r->tail : r->slots - r->tail + head;
-        if (count > (capacity - 8) / 8)
-            count = (capacity - 8) / 8;
+        if (count > (capacity - 8) / (SAMPLE_WORDS * 4))
+            count = (capacity - 8) / (SAMPLE_WORDS * 4);
         dropped = r->dropped - r->reported;
         r->reported += dropped;
     }
-    uint32_t *b = new_reply(8 + count * 8);
+    uint32_t *b = new_reply(8 + count * SAMPLE_WORDS * 4);
     if (!b)
         return 0;
     b[0] = count;
     b[1] = dropped;
     for (uint32_t i = 0, tail = r ? r->tail : 0; i < count; i++) {
-        b[2 + i * 2] = r->samples[tail * 2];
-        b[3 + i * 2] = r->samples[tail * 2 + 1];
+        for (uint32_t k = 0; k < SAMPLE_WORDS; k++)
+            b[2 + i * SAMPLE_WORDS + k] = r->samples[tail * SAMPLE_WORDS + k];
         tail = tail + 1 == r->slots ? 0 : tail + 1;
         r->tail = tail;
     }
@@ -352,12 +422,15 @@ static void capture_done(void)
     capture = CAPTURE_READY;
 }
 
+static void do_work(void);
+
 /* UI task. */
 static int on_timer(void *recipient, uint8_t *event)
 {
     (void)recipient;
     if (word(event, Event_kind) != Event_Timer)
         return 0;
+    do_work();
     if (capture == CAPTURE_ARMED) {
         if (api->hook_bind(self, &draw_hook) != RV_OK) {
             capture_done(); /* ready, with nothing in it */
@@ -415,12 +488,201 @@ static void *screen_data(void)
     return reply;
 }
 
+/* Clock and boot times. */
+
+static void *clock_now(void)
+{
+    uint32_t *b = new_reply(4);
+    if (b)
+        b[0] = Clock_GetMicroseconds();
+    return b;
+}
+
+static void *boot_times(void)
+{
+    uint32_t *b = new_reply(sizeof boot);
+    if (b) {
+        const uint32_t *from = (const uint32_t *)&boot;
+        for (uint32_t i = 0; i < sizeof boot / 4; i++)
+            b[i] = from[i];
+    }
+    return b;
+}
+
+static void first_idle(void *arg)
+{
+    (void)arg;
+    boot.first_idle = Clock_GetMicroseconds();
+}
+
+/* Heap watch: Apple's free bytes sampled on a UI timer. */
+
+static void heap_sample(void)
+{
+    uint32_t free = word(heap_object, MainHeap_free_bytes);
+    if (!heap.samples++ || free < heap.min)
+        heap.min = free;
+    if (free > heap.max)
+        heap.max = free;
+    heap.latest = free;
+}
+
+static int on_heap_timer(void *recipient, uint8_t *event)
+{
+    (void)recipient;
+    if (word(event, Event_kind) != Event_Timer)
+        return 0;
+    if (heap_period) {
+        heap_sample();
+        Timer_Start(heap_timer);
+    }
+    return 1;
+}
+
+static void *const heap_vtable[EventRecipient_event_method / 4 + 1] = {
+    [EventRecipient_event_method / 4] = on_heap_timer,
+};
+static const struct {
+    void *const *vtable;
+} heap_recipient = {heap_vtable};
+
+static int heap_watch(uint32_t period)
+{
+    if (!heap_object)
+        return 0;
+    heap_period = 0;
+    if (!period)
+        return 1;
+    heap.samples = heap.latest = heap.min = heap.max = 0;
+    Timer_SetPeriod(heap_timer, period);
+    heap_period = period;
+    Timer_Start(heap_timer);
+    return 1;
+}
+
+static void *heap_stats(void)
+{
+    uint32_t *b = new_reply(20);
+    if (!b)
+        return 0;
+    b[0] = heap.samples;
+    b[1] = heap.latest;
+    b[2] = heap.min;
+    b[3] = heap.max;
+    b[4] = heap_object ? word(heap_object, MainHeap_total_bytes) : 0;
+    return b;
+}
+
+/* Stack watermark: the UI stack grows down from its record's base plus
+ * UITask_stack_bytes. Everything below the stack pointer, less a margin, is
+ * filled with a pattern on the UI task; the lowest word that changed since is
+ * the deepest the stack went. IRQ frames land on the interrupted task's stack
+ * and count too. */
+
+RV_ARM static void *current_thread(void)
+{
+    return Thread_GetCurrentRecord();
+}
+
+static void stack_fill(void)
+{
+    uint32_t base = word(current_thread(), ThreadRecord_stack_base), sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    stack_base = 0;
+    if (sp <= base + STACK_MARGIN || sp > base + UITask_stack_bytes)
+        return; /* not on the UI stack */
+    uint32_t top = (sp - STACK_MARGIN) & ~3u;
+    for (volatile uint32_t *p = (uint32_t *)base; p < (uint32_t *)top; p++)
+        *p = STACK_PATTERN;
+    stack_top = top;
+    stack_base = base;
+}
+
+static void *stack_mark(void)
+{
+    uint32_t base = stack_base;
+    if (!base)
+        return 0;
+    uint32_t *b = new_reply(16);
+    if (!b)
+        return 0;
+    const volatile uint32_t *p = (const uint32_t *)base;
+    while ((uint32_t)p < stack_top && *p == STACK_PATTERN)
+        p++;
+    b[0] = base;
+    b[1] = UITask_stack_bytes;
+    b[2] = stack_top;
+    b[3] = (uint32_t)p;
+    return b;
+}
+
+/* Faults, raised on the UI task so the panic screen and the crash record see
+ * this extension's code. */
+
+RV_ARM static void undefined_instruction(void)
+{
+    __asm__ volatile(".word 0xe7f000f0"); /* permanently undefined */
+}
+
+RV_ARM static void software_abort(void)
+{
+    Runtime_Abort();
+}
+
+/* FLUSH stores a new sequence number, so the store is dirty and the flush
+ * writes; after a reset, the number found at boot tells which copy survived. */
+static void flush_now(void)
+{
+    uint32_t sequence = boot.flush_written + 1;
+    if (api->setting_write(self, FLUSH_KEY, RV_SETTING_TYPE_BLOB, &sequence, 4) == RV_OK)
+        boot.flush_written = sequence;
+    int then_reset = flush_mode & FLUSH_THEN_RESET;
+    if (then_reset && flush_delay) {
+        reset_at = Clock_GetMicroseconds() + flush_delay * 100u;
+        __asm__ volatile("" ::: "memory");
+        if (irq_bind())
+            reset_armed = 1;
+    }
+    api->settings_flush();
+    if (then_reset && !reset_armed)
+        reset_now(); /* no delay, or the IRQ hook could not be bound */
+}
+
+static int queue(volatile uint8_t *flag)
+{
+    *flag = 1;
+    Timer_Start(timer);
+    return 1;
+}
+
+/* UI task, at a tick of `timer`. */
+static void do_work(void)
+{
+    if (pending_stack) {
+        pending_stack = 0;
+        stack_fill();
+    }
+    if (pending_flush) {
+        pending_flush = 0;
+        flush_now();
+    }
+    if (pending_reset)
+        reset_now();
+    if (pending_fault) {
+        pending_fault = 0;
+        if (fault_kind == FAULT_UNDEFINED)
+            undefined_instruction();
+        else
+            software_abort();
+    }
+}
+
 /* Requests. Returns -1 when the request is not this extension's, 0 to stall,
  * 1 when handled; IN replies go to *data and *length (the host's wLength on
  * entry). `packet` is EP0's maximum packet size, 0 when there is no USB. */
 static int handle(const struct setup *s, void **data, uint32_t *length, uint32_t packet)
 {
-    if (s->request < INFO || s->request > SCREEN_DATA || stopping)
+    if (s->request < INFO || s->request > LAST_REQUEST || stopping)
         return -1;
     if (reply) {
         api->free(self, reply);
@@ -445,6 +707,19 @@ static int handle(const struct setup *s, void **data, uint32_t *length, uint32_t
             return profile(s->value, s->index);
         case SCREEN:
             return screen_arm();
+        case HEAP_WATCH:
+            return heap_watch(s->value);
+        case FAULT:
+            if (s->value != FAULT_UNDEFINED && s->value != FAULT_ABORT)
+                return 0;
+            fault_kind = s->value;
+            return queue(&pending_fault);
+        case RESET:
+            return queue(&pending_reset);
+        case FLUSH:
+            flush_mode = s->value;
+            flush_delay = s->index;
+            return queue(&pending_flush);
         }
         return 0;
     }
@@ -465,7 +740,25 @@ static int handle(const struct setup *s, void **data, uint32_t *length, uint32_t
             return 0;
         b = samples(bytes);
         if (b)
-            bytes = 8 + word(b, 0) * 8;
+            bytes = 8 + word(b, 0) * SAMPLE_WORDS * 4;
+        break;
+    case CLOCK:
+        b = clock_now();
+        bytes = bytes < 4 ? bytes : 4;
+        break;
+    case BOOT:
+        b = boot_times();
+        bytes = bytes < sizeof boot ? bytes : sizeof boot;
+        break;
+    case HEAP_STATS:
+        b = heap_stats();
+        bytes = bytes < 20 ? bytes : 20;
+        break;
+    case STACK:
+        b = stack_mark();
+        bytes = bytes < 16 ? bytes : 16;
+        if (b && s->value == 1)
+            queue(&pending_stack);
         break;
     case SCREEN_DATA:
         b = screen_data();
@@ -567,6 +860,8 @@ static void unload(void)
     Timer_Stop(mailbox_timer);
 #endif
     Timer_Stop(timer);
+    heap_period = 0;
+    Timer_Stop(heap_timer);
     api->hook_unbind(self, &draw_hook);
     profile_stop();
     if (screen)
@@ -592,6 +887,14 @@ const struct rv_descriptor *rv_module_entry(const struct rv_api *core, rv_extens
 {
     api = core;
     self = handle;
+    boot.entry = Clock_GetMicroseconds();
+    stack_fill();
+    if (RV_HAS(api, debug_info))
+        heap_object = api->debug_info()->heap;
+    api->setting_read(self, FLUSH_KEY, &boot.flush_at_boot, 4);
+    boot.flush_written = boot.flush_at_boot;
+    api->timer_start(self, 1, 0, first_idle, 0);
+    UI_InitializeEventTimer((void *)&heap_recipient, heap_timer, CAPTURE_MS, 0);
     /* Timer_Start ignores a timer whose period is unset. */
     UI_InitializeEventTimer((void *)&timer_recipient, timer, CAPTURE_MS, 0);
     Timer_SetPeriod(timer, CAPTURE_MS);
