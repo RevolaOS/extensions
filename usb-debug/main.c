@@ -145,7 +145,7 @@ struct info {
     uint32_t heap_total;
     uint32_t heap_free;
     uint32_t extensions;
-    uint16_t record[6]; /* next, owner, directory, live, peak, failure */
+    uint16_t record[6]; /* next, owner, file, live, peak, failure */
     uint32_t unused[4];
 };
 _Static_assert(sizeof(struct info) == INFO_BYTES, "INFO is 64 bytes");
@@ -168,7 +168,7 @@ static void *info(void)
         b->extensions = (uint32_t)d->extensions;
         b->record[0] = d->next;
         b->record[1] = d->owner;
-        b->record[2] = d->directory;
+        b->record[2] = d->file;
         b->record[3] = d->live;
         b->record[4] = d->peak;
         b->record[5] = d->failure;

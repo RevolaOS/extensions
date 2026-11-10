@@ -20,7 +20,7 @@ Vendor control requests to the device (IN bmRequestType 0xC0, OUT 0x40), all lit
 | 0xD7 SCREEN | OUT | 0 / 0 | captures every string drawn in the next full redraw |
 | 0xD8 SCREEN_DATA | IN | 0 / 0 | header {"RVSC", status (0 pending, 1 ready), count u16, bytes u32}, then records {top, left, bottom, right i16, colour u32, view vtable u32, length u8, UTF-8 text} padded to 4 bytes; reading a ready capture frees it |
 
-INFO: "RVUD", protocol version u16 (1), pad, firmware id, core build, maximum transfer, display pipe base, Apple heap total and free bytes, address of the core's extension list head, then u16 offsets of next, owner, directory, live, peak and failure in a core extension record.
+INFO: "RVUD", protocol version u16 (1), pad, firmware id, core build, maximum transfer, display pipe base, Apple heap total and free bytes, address of the core's extension list head, then u16 offsets of next, owner, file (the extension's file name without `.rvx`), live, peak and failure in a core extension record.
 
 TODO: hold switch input needs a site on the hold switch read.
 

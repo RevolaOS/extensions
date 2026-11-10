@@ -2,13 +2,13 @@
 
 First-party RevolaOS extensions. One directory per extension, each with its own `manifest.toml`, built against a pinned revola SDK release.
 
-Extensions are loaded from `/Revola/Extensions/<id>/` on the iPod and can be turned on and off in Settings > Extensions. A disabled extension uses no RAM.
+Each extension is one file on the iPod, `/Revola/Extensions/<id>.rvx`, and can be turned on and off in Settings > Extensions. A disabled extension uses no RAM.
 
 | Directory | Extension | Default |
 |---|---|---|
 | `usb-debug` | USB Debug: lets a computer inspect and control the iPod over USB for debugging while music keeps playing; turn it off to sync | off |
 
-Build one with `make -C <directory> SDK=/path/to/revola-sdk`; the output in `<directory>/build/` is what goes to `/Revola/Extensions/<id>/`.
+Build one with `make -C <directory> SDK=/path/to/revola-sdk`; `<directory>/build/<id>.rvx` is what goes to `/Revola/Extensions/<id>.rvx`.
 
 ## What drives development
 
