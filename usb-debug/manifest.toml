@@ -1,0 +1,12 @@
+id = "usb-debug"
+name = "USB Debug"
+description = "Lets a computer inspect and control the iPod over USB for debugging while music keeps playing. Turn it off to sync."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+api = "1.6"
+enabled = false
+
+[[module]]
+name = "main"
+trigger = "always"
