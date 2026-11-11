@@ -26,7 +26,7 @@ void queue_add_browser(void *browser, int last);
 uint32_t queue_rows(void);
 
 /* Whether the playback list, current track, position, count or order changed since
- * the previous check. Called on the UI task while Up Next is open. */
+ * the previous check. Called on the UI task while Queue is open. */
 int queue_changed(void);
 
 /* Title (or artist with `artist`) of row `row` into `out`, empty for a missing

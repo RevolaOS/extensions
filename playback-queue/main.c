@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
 /* Play Next and Play Last in music and audio podcast episode context menus,
- * and Up Next: pending items in Music, the Main menu and the
+ * and Queue: pending items in Music, the Main menu and the
  * Now Playing context menu. */
 
 #include "queue.h"
@@ -75,7 +75,7 @@ static int upcoming(const struct rv_context *ctx)
     return queue_rows() != 0;
 }
 
-/* Up Next */
+/* Queue */
 
 static char title[128], artist[128];
 static struct rv_timer *refresh_timer;
@@ -197,7 +197,7 @@ static const struct rv_context_row song_menu[] = {
     RV_CONTEXT_ROW(RV_ROW_ACTION("Move Down", move_down), .available = can_move_down),
     RV_CONTEXT_ROW(RV_ROW_ACTION("Move to Bottom", move_bottom), .available = can_move_down),
     RV_CONTEXT_ROW(RV_ROW_ACTION("Remove", remove_song), .available = can_remove),
-    RV_CONTEXT_ROW(RV_ROW_PUSH("Clear Up Next", "clear"), .available = upcoming),
+    RV_CONTEXT_ROW(RV_ROW_PUSH("Clear Queue", "clear"), .available = upcoming),
 };
 
 static void clear_confirmed(const struct rv_context *ctx)
@@ -215,17 +215,17 @@ static void clear_cancelled(const struct rv_context *ctx)
 }
 
 static const struct rv_row clear_rows[] = {
-    RV_ROW_ACTION("Clear Up Next", clear_confirmed),
+    RV_ROW_ACTION("Clear Queue", clear_confirmed),
     RV_ROW_ACTION("Cancel", clear_cancelled),
 };
 
 static const struct rv_screen screens[] = {
-    RV_SCREEN_DYNAMIC_LIST("queue", "Up Next", song_count, song_row, song_select,
+    RV_SCREEN_DYNAMIC_LIST("queue", "Queue", song_count, song_row, song_select,
                            .layout = RV_LAYOUT_FULL, .dynamic.detail = RV_DETAIL_BELOW,
-                           .dynamic.initial = song_first, .dynamic.empty = "No Upcoming Items",
+                           .dynamic.initial = song_first, .dynamic.empty = "No Items in Queue",
                            RV_SCREEN_CONTEXT(song_menu),
                            .opened = queue_opened, .closed = queue_closed),
-    RV_SCREEN_LIST("clear", "Clear Up Next", clear_rows, .layout = RV_LAYOUT_FULL),
+    RV_SCREEN_LIST("clear", "Clear Queue", clear_rows, .layout = RV_LAYOUT_FULL),
 };
 
 static const struct rv_menu_entry entries[] = {
@@ -245,19 +245,19 @@ static const struct rv_menu_entry entries[] = {
                   .available = can_add_item),
     RV_MENU_ENTRY(RV_MENU_PODCAST_EPISODE_CONTEXT, 0, RV_ROW_ACTION("Play Last", song_last),
                   .available = can_add_item),
-    RV_MENU_ENTRY(RV_MENU_NOW_PLAYING_CONTEXT, 0, RV_ROW_PUSH("Up Next", "queue"),
+    RV_MENU_ENTRY(RV_MENU_NOW_PLAYING_CONTEXT, 0, RV_ROW_PUSH("Queue", "queue"),
                   .available = available),
-    RV_MENU_ENTRY(RV_MENU_NOW_PLAYING_CONTEXT, 0, RV_ROW_PUSH("Clear Up Next", "clear"),
+    RV_MENU_ENTRY(RV_MENU_NOW_PLAYING_CONTEXT, 0, RV_ROW_PUSH("Clear Queue", "clear"),
                   .available = upcoming),
-    RV_MENU_ENTRY(RV_MENU_MUSIC, RV_MUSIC_AUDIOBOOKS, RV_ROW_PUSH("Up Next", "queue"),
+    RV_MENU_ENTRY(RV_MENU_MUSIC, RV_MUSIC_AUDIOBOOKS, RV_ROW_PUSH("Queue", "queue"),
                   .shown_by = KEY_IN_MUSIC),
-    RV_MENU_ENTRY(RV_MENU_MAIN, RV_MAIN_AUDIOBOOKS, RV_ROW_PUSH("Up Next", "queue"),
+    RV_MENU_ENTRY(RV_MENU_MAIN, RV_MAIN_AUDIOBOOKS, RV_ROW_PUSH("Queue", "queue"),
                   .shown_by = KEY_IN_MAIN),
 };
 
 static const struct rv_setting settings[] = {
-    RV_SETTING_BOOL(KEY_IN_MUSIC, "Up Next in Music", 1),
-    RV_SETTING_BOOL(KEY_IN_MAIN, "Up Next in Main Menu", 0),
+    RV_SETTING_BOOL(KEY_IN_MUSIC, "Queue in Music", 1),
+    RV_SETTING_BOOL(KEY_IN_MAIN, "Queue in Main Menu", 0),
 };
 
 static const struct rv_hook hooks[] = {

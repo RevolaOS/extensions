@@ -1,6 +1,6 @@
 id = "playback-queue"
 name = "Playback Queue"
-description = "Queue songs, albums, artists or podcast episodes with Play Next or Play Last. Manage the queue in Up Next."
+description = "Queue songs, albums, artists or podcast episodes with Play Next or Play Last. View and edit queued items at any time."
 version = "0.1.0"
 author = "RevolaOS"
 note = "Partly adapted from RepriseOS"
