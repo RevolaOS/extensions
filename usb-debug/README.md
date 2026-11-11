@@ -1,8 +1,8 @@
 # USB Debug
 
-Debugs RevolaOS on a device over USB. While enabled, a plugged-in iPod never enters disk mode: the UI and playback keep running, and `revola debug` on the host reads and writes memory, takes screenshots, presses buttons, watches the heap and the UI stack, samples the CPU, times the boot, and raises faults, flushes and resets for recovery tests. To sync, disable the extension, then unplug and replug the iPod.
+Debugs RevolaOS on a device over USB. While enabled, a plugged-in iPod never enters disk mode: the UI and playback keep running, and `revola debug` on the host reads and writes memory, takes screenshots, presses buttons, watches the heap and the UI stack, samples the CPU, times the boot and any core hook site, logs disk, audio and core events, injects the hold switch, turns extensions on and off, and raises faults, flushes and resets for recovery tests. To sync, disable the extension, then unplug and replug the iPod.
 
-Disabled by default. While enabled and idle, it holds no memory beyond its image. The profiler ring and capture buffers exist only while in use. It stores one setting, the FLUSH sequence number.
+Disabled by default. While enabled and idle, it holds no memory beyond its image. The profiler ring, the event log and capture buffers exist only while in use. It stores one setting, the FLUSH sequence number.
 
 ## Protocol
 
@@ -17,20 +17,25 @@ Vendor control requests to the device (IN bmRequestType 0xC0, OUT 0x40), all lit
 | 0xD4 INPUT | OUT | kind / argument | 1 buttons (WheelButton mask), 2 touch (wheel position 0..95), 3 lift. One step per request; the host waits between steps |
 | 0xD5 PROFILE | OUT | rate Hz / ring entries | starts PC sampling; 0 / 0 stops and frees the ring |
 | 0xD6 SAMPLES | IN | 0 / 0 | {count, dropped since the last drain}, then count × {pc, lr, µs} |
-| 0xD7 SCREEN | OUT | 0 / 0 | captures every string drawn in the next full redraw |
+| 0xD7 SCREEN | OUT | 0 / 0 | captures every string drawn in the next full redraw, the text of scrolling (marquee) rows included |
 | 0xD8 SCREEN_DATA | IN | 0 / 0 | header {"RVSC", status (0 pending, 1 ready), count u16, bytes u32}, then records {top, left, bottom, right i16, colour u32, view vtable u32, length u8, UTF-8 text} padded to 4 bytes; reading a ready capture frees it |
 | 0xD9 CLOCK | IN | 0 / 0 | µs u32 from Apple's microsecond counter, which starts with OSOS (not at reset) and wraps after 71.6 minutes |
-| 0xDA BOOT | IN | 0 / 0 | µs at the extension's entry, at the first main menu (0 until known) and at the first UI timer tick after the entry; the FLUSH sequence number at the entry and the last one written |
+| 0xDA BOOT | IN | 0 / 0 | µs at the extension's entry, at the first main menu (the first layout shown without an animation, 0 when that was another layout) and at the first UI timer tick after the entry; the FLUSH sequence number at the entry and the last one written. The times describe the boot when the extension loaded at boot |
 | 0xDB HEAP_WATCH | OUT | period ms / 0 | samples Apple's free heap bytes on a UI timer from now on; 0 stops |
 | 0xDC HEAP_STATS | IN | 0 / 0 | {samples, latest, minimum, maximum free bytes, heap total} |
 | 0xDD STACK | IN | 0 or 1 / 0 | {UI stack base, size, top of the filled part, lowest word that changed}; the stack is filled with a pattern from its base to 512 bytes below the stack pointer at the entry, and 1 refills it at the next UI timer tick after replying. Stalls when the entry did not run on the UI stack |
-| 0xDE FAULT | OUT | kind / 0 | at the next UI timer tick: 1 undefined instruction, 2 Runtime_Abort |
+| 0xDE FAULT | OUT | kind / 0 | at the next UI timer tick: 1 undefined instruction, 2 Runtime_Abort, 3 data abort (a read of MMU_UNMAPPED_ADDRESS) |
 | 0xDF RESET | OUT | 0 / 0 | warm reset (WarmBootMode_None) about 50 ms after the reply |
 | 0xE0 FLUSH | OUT | mode / delay | at the next UI timer tick, stores the next sequence number and flushes the settings. Mode 1 then resets: `delay` × 100 µs after the flush began (from an IRQ, so possibly during the write), or as soon as it returns when `delay` is 0 |
+| 0xE1 TIME_SITE | OUT | site id low / high | at the next UI timer tick, puts a timing filter in front of every handler on the core site (RV_SITE_* id), up to 8 sites; 0 removes them all. A site that takes no filter, or whose exclusive handler is bound, is not timed |
+| 0xE2 TIMINGS | IN | 0 / 0 | {count}, then count × {site id, calls, total, minimum, maximum µs} |
+| 0xE3 EVENTS | OUT | ring entries / 0 | at the next UI timer tick, starts the event log; 0 stops and frees it |
+| 0xE4 EVENT_LOG | IN | 0 / 0 | {count, dropped since the last drain}, then count × {µs, kind, argument}: the core's rv_trace_kind events, 0x100 disk controller powered (argument 1) or off (0), 0x101 the audio output queue's underrun count changed (argument the count; one per output buffer filled with silence). The disk and underrun state is polled every 50 ms; a powered controller does not mean a spinning disk |
+| 0xE5 HOLD | OUT | state / 0 | at the next UI timer tick: 1 locked, 2 unlocked, 0 back to the switch. Buttons and the lock icon follow; wheel motion does not read the switch and keeps scrolling |
+| 0xE6 EXTENSION | OUT | 1 on, 0 off / 0 | at the next UI timer tick, turns on or off the extension whose file name (without `.rvx`) the host wrote into the 32-byte buffer INFO names, as Settings > Extensions does. Stalls while one is pending |
+| 0xE7 EXTENSION_RESULT | IN | 0 / 0 | {state (0 none, 1 pending, 2 done), rv_result} |
 
-INFO: "RVUD", protocol version u16 (2), pad, firmware id, core build, maximum transfer, display pipe base, Apple heap total and free bytes, address of the core's extension list head, u16 offsets of next, owner, file (the extension's file name without `.rvx`), live, peak and failure in a core extension record, then the clock rate in Hz.
-
-TODO: hold switch input needs a site on the hold switch read.
+INFO: "RVUD", protocol version u16 (2), pad, firmware id, core build, maximum transfer, display pipe base, Apple heap total and free bytes, address of the core's extension list head, u16 offsets of next, owner, file (the extension's file name without `.rvx`), live, peak and failure in a core extension record, the clock rate in Hz, then the address of EXTENSION's name buffer.
 
 ## Emulator test build
 

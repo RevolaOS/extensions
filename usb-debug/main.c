@@ -41,11 +41,18 @@
 enum {
     INFO = 0xd0, READ, SET_ADDRESS, WRITE32, INPUT, PROFILE, SAMPLES, SCREEN, SCREEN_DATA,
     CLOCK, BOOT, HEAP_WATCH, HEAP_STATS, STACK, FAULT, RESET, FLUSH,
-    LAST_REQUEST = FLUSH
+    TIME_SITE, TIMINGS, EVENTS, EVENT_LOG, HOLD, EXTENSION, EXTENSION_RESULT,
+    LAST_REQUEST = EXTENSION_RESULT
 };
 enum { INPUT_BUTTONS = 1, INPUT_TOUCH, INPUT_LIFT };
 enum { CAPTURE_IDLE, CAPTURE_ARMED, CAPTURE_BOUND, CAPTURE_READY };
-enum { FAULT_UNDEFINED = 1, FAULT_ABORT };
+enum { FAULT_UNDEFINED = 1, FAULT_ABORT, FAULT_DATA_ABORT };
+enum { HOLD_RELEASE, HOLD_LOCKED, HOLD_UNLOCKED };
+enum { RESULT_IDLE, RESULT_PENDING, RESULT_DONE };
+/* EVENT_LOG kinds beyond rv_trace_kind, from the poll on `timer`. */
+enum { EVENT_DISK_POWER = 0x100, EVENT_UNDERRUN };
+#define TIMED_SLOTS 8
+#define NAME_BYTES 32
 #define FLUSH_THEN_RESET 1
 
 struct setup {
@@ -81,7 +88,8 @@ static volatile uint8_t capture;
 static uint32_t timer[EventTimer_bytes / 4];
 /* Work a request leaves for the UI task, done at the next tick of `timer`. Each
  * flag is set by the USB task and cleared by the UI task before the work. */
-static volatile uint8_t pending_stack, pending_fault, pending_reset, pending_flush;
+static volatile uint8_t pending_stack, pending_fault, pending_reset, pending_flush, pending_time,
+    pending_hold, pending_extension, pending_events;
 static uint8_t fault_kind;
 static uint8_t flush_mode;      /* FLUSH_THEN_RESET */
 static uint16_t flush_delay;    /* 100 µs units from the flush's start to the reset */
@@ -103,6 +111,15 @@ static struct {
 } heap;
 
 static uint32_t stack_base, stack_top; /* the UI stack filled from base to top; 0 when not */
+
+static const struct rv_debug_info *debug;  /* NULL on a core without one */
+static uint32_t time_request;              /* site id for the next TIME_SITE, 0 stops all */
+static uint8_t hold_request;               /* HOLD_* */
+static uint16_t events_request;            /* ring entries for the next EVENTS, 0 stops */
+static uint8_t extension_enable;
+static uint32_t extension_name[NAME_BYTES / 4]; /* written by the host through WRITE32 */
+static volatile uint8_t extension_state;   /* RESULT_* */
+static int32_t extension_result;
 
 static uint32_t word(const void *base, uint32_t offset)
 {
@@ -182,7 +199,8 @@ struct info {
     uint32_t extensions;
     uint16_t record[6]; /* next, owner, file, live, peak, failure */
     uint32_t clock_hz;
-    uint32_t unused[3];
+    uint32_t extension_name; /* where the host writes EXTENSION's file name */
+    uint32_t unused[2];
 };
 _Static_assert(sizeof(struct info) == INFO_BYTES, "INFO is 64 bytes");
 
@@ -197,6 +215,7 @@ static void *info(void)
     b->max_transfer = MAX_TRANSFER;
     b->display = DISPLAY_PIPE_BASE;
     b->clock_hz = CLOCK_HZ;
+    b->extension_name = (uint32_t)extension_name;
     if (RV_HAS(api, debug_info)) {
         const struct rv_debug_info *d = api->debug_info();
         b->core_build = d->core_build;
@@ -234,7 +253,7 @@ static int input(uint32_t kind, uint32_t argument)
         *(volatile uint32_t *)(w + WheelState_threshold) = LIFT_THRESHOLD;
         *(volatile uint32_t *)(w + WheelState_motion) = 0;
         break;
-    default: /* TODO: hold (kind 4) needs a site on the hold switch read */
+    default: /* the hold switch is HOLD */
         return 0;
     }
     w[WheelState_skip_packet] = 0;
@@ -408,9 +427,25 @@ static uint32_t on_draw(uint8_t *view, const char *text, uint32_t argument, cons
 
 static const struct rv_hook draw_hook = RV_HOOK_FILTER(RV_SITE_TextView_DrawString_entry, on_draw);
 
+/* A marquee view's text never passes through a draw call; its colour is set
+ * just before the pre-rendered text is copied, with the context's clip set. */
+static uint32_t on_marquee(uint8_t *context, const uint8_t *rgba, uint8_t *view, const void *next)
+{
+    uint32_t result = api->hook_next(next, (uint32_t)context, (uint32_t)rgba, (uint32_t)view, 0,
+                                     0, 0);
+    const char *text = *(const char *const *)(view + TextView_text);
+    if (text)
+        record(view, context, text);
+    return result;
+}
+
+static const struct rv_hook marquee_hook =
+    RV_HOOK_FILTER(RV_SITE_MarqueeTextView_DrawColor_call, on_marquee);
+
 static void capture_done(void)
 {
     api->hook_unbind(self, &draw_hook);
+    api->hook_unbind(self, &marquee_hook);
     ((struct screen_header *)screen)->status = 1;
     __asm__ volatile("" ::: "memory"); /* the records are complete before READY */
     capture = CAPTURE_READY;
@@ -430,6 +465,7 @@ static int on_timer(void *recipient, uint8_t *event)
             capture_done(); /* ready, with nothing in it */
             return 1;
         }
+        api->hook_bind(self, &marquee_hook); /* a core without the site misses marquees */
         uint8_t *root = UI_GetRootView();
         capture = CAPTURE_BOUND;
         View_InvalidateRect(root, (const int32_t *)(root + View_bounds));
@@ -501,12 +537,6 @@ static void *boot_times(void)
             b[i] = from[i];
     }
     return b;
-}
-
-static void first_idle(void *arg)
-{
-    (void)arg;
-    boot.first_idle = Clock_GetMicroseconds();
 }
 
 /* Heap watch: Apple's free bytes sampled on a UI timer. */
@@ -623,6 +653,11 @@ RV_ARM static void software_abort(void)
     Runtime_Abort();
 }
 
+static void data_abort(void)
+{
+    (void)*(volatile uint32_t *)MMU_UNMAPPED_ADDRESS; /* no first-level entry */
+}
+
 /* FLUSH stores a new sequence number, so the store is dirty and the flush
  * writes; after a reset, the number found at boot tells which copy survived. */
 static void flush_now(void)
@@ -640,6 +675,313 @@ static void flush_now(void)
     api->settings_flush();
     if (then_reset && !reset_armed)
         reset_now(); /* no delay, or the IRQ hook could not be bound */
+}
+
+/* Site timing: a filter in front of every other handler on the site measures
+ * the call through api->hook_next, the other filters and Apple's code included.
+ * Each slot has its own handler, since a handler is not told its site. A
+ * handler receives the site's register arguments, `next`, then its stack
+ * arguments; a seven-word signature covers every core site. */
+
+struct timed {
+    uint32_t site;
+    uint8_t registers, stack;
+    uint32_t calls, total, min, max; /* µs */
+};
+
+static struct timed timed[TIMED_SLOTS];
+static struct rv_hook timed_hooks[TIMED_SLOTS];
+
+static uint32_t time_call(struct timed *t, const uint32_t *p)
+{
+    uint32_t a[6] = {0}, n = 0;
+    for (uint32_t i = 0; i < t->registers; i++)
+        a[n++] = p[i];
+    for (uint32_t i = 0; i < t->stack; i++)
+        a[n++] = p[t->registers + 1 + i];
+    uint32_t start = Clock_GetMicroseconds();
+    uint32_t result = api->hook_next((const void *)p[t->registers], a[0], a[1], a[2], a[3], a[4], a[5]);
+    uint32_t took = Clock_GetMicroseconds() - start;
+    uint32_t state = api->irq_save();
+    if (!t->calls++ || took < t->min)
+        t->min = took;
+    if (took > t->max)
+        t->max = took;
+    t->total += took;
+    api->irq_restore(state);
+    return result;
+}
+
+#define TIMED(n)                                                                                \
+    static uint32_t timed_##n(uint32_t p0, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4,   \
+                              uint32_t p5, uint32_t p6)                                         \
+    {                                                                                           \
+        const uint32_t p[7] = {p0, p1, p2, p3, p4, p5, p6};                                     \
+        return time_call(&timed[n], p);                                                         \
+    }
+TIMED(0) TIMED(1) TIMED(2) TIMED(3) TIMED(4) TIMED(5) TIMED(6) TIMED(7)
+#undef TIMED
+static void *const timed_handlers[TIMED_SLOTS] = {timed_0, timed_1, timed_2, timed_3,
+                                                  timed_4, timed_5, timed_6, timed_7};
+
+static void time_stop_all(void)
+{
+    for (uint32_t i = 0; i < TIMED_SLOTS; i++)
+        if (timed[i].site) {
+            api->hook_unbind(self, &timed_hooks[i]);
+            timed[i].site = 0;
+        }
+}
+
+/* UI task. A slot with site 0 is free; the result of a bind that failed is
+ * not kept, so TIMINGS simply lacks the site. */
+static void time_site(uint32_t site)
+{
+    if (!site) {
+        time_stop_all();
+        return;
+    }
+    int argc = debug && RV_HAS(debug, site_argc) ? debug->site_argc(site) : -1;
+    uint32_t i = 0;
+    while (i < TIMED_SLOTS && timed[i].site && timed[i].site != site)
+        i++;
+    if (argc < 0 || i == TIMED_SLOTS || timed[i].site)
+        return;
+    struct timed *t = &timed[i];
+    t->registers = argc & 15;
+    t->stack = argc >> 4;
+    t->calls = t->total = t->min = t->max = 0;
+    timed_hooks[i] = (struct rv_hook)RV_HOOK_FILTER_AT(site, timed_handlers[i], INT16_MIN);
+    if (api->hook_bind(self, &timed_hooks[i]) == RV_OK)
+        t->site = site;
+}
+
+struct timing_record {
+    uint32_t site, calls, total, min, max;
+};
+
+/* {count}, then a record per timed site. */
+static void *timings(uint32_t *bytes)
+{
+    uint32_t *b = new_reply(4 + TIMED_SLOTS * sizeof(struct timing_record));
+    if (!b)
+        return 0;
+    struct timing_record *out = (struct timing_record *)(b + 1);
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < TIMED_SLOTS; i++) {
+        const struct timed *t = &timed[i];
+        uint32_t state = api->irq_save();
+        if (t->site)
+            out[n++] = (struct timing_record){t->site, t->calls, t->total, t->min, t->max};
+        api->irq_restore(state);
+    }
+    b[0] = n;
+    *bytes = 4 + n * sizeof(struct timing_record);
+    return b;
+}
+
+/* Event log: the core's tracepoints, and what the poll on `timer` sees change:
+ * the ATA controller's clock gate (open while the disk can be accessed; a
+ * powered disk may still be in standby) and the audio output queue's underrun
+ * count (one per output buffer filled with silence because the queue was
+ * empty). Written on the UI task and drained on the USB task; one slot stays
+ * free to tell full from empty. */
+
+struct event {
+    uint32_t time; /* µs */
+    uint32_t kind; /* rv_trace_kind or EVENT_* */
+    uint32_t argument;
+};
+
+struct event_ring {
+    uint32_t head, tail, slots, dropped, reported;
+    uint32_t powered, underruns; /* as the last poll saw them */
+    struct event events[];
+};
+
+static struct event_ring *volatile events;
+
+static void event_add(uint32_t kind, uint32_t argument)
+{
+    struct event_ring *r = events;
+    if (!r)
+        return;
+    uint32_t state = api->irq_save();
+    uint32_t head = r->head, following = head + 1 == r->slots ? 0 : head + 1;
+    if (following == r->tail) {
+        r->dropped++;
+    } else {
+        r->events[head] = (struct event){Clock_GetMicroseconds(), kind, argument};
+        r->head = following;
+    }
+    api->irq_restore(state);
+}
+
+static void on_trace(uint32_t kind, uint32_t argument)
+{
+    event_add(kind, argument);
+}
+
+static uint32_t disk_powered(void)
+{
+    return !(word((const void *)ClockRegister_PowerGate0, 0) & PowerGate0_ATA);
+}
+
+static uint32_t underruns(void)
+{
+    return word(AudioOutputQueue, AudioOutputQueue_underruns);
+}
+
+static void events_poll(void)
+{
+    struct event_ring *r = events;
+    if (!r)
+        return;
+    uint32_t powered = disk_powered(), count = underruns();
+    if (powered != r->powered)
+        event_add(EVENT_DISK_POWER, r->powered = powered);
+    if (count != r->underruns)
+        event_add(EVENT_UNDERRUN, r->underruns = count);
+}
+
+/* UI task, like the tracepoints, so the probe is never cleared under one. A
+ * drain runs with interrupts masked, so it never holds the ring freed here. */
+static void events_stop(void)
+{
+    if (debug && RV_HAS(debug, trace))
+        *debug->trace = 0;
+    uint32_t state = api->irq_save();
+    struct event_ring *r = events;
+    events = 0;
+    api->irq_restore(state);
+    if (r)
+        api->free(self, r);
+}
+
+static int events_start(uint32_t entries)
+{
+    events_stop();
+    if (!entries)
+        return 1;
+    struct event_ring *r = api->alloc(self, sizeof *r + (entries + 1) * sizeof(struct event));
+    if (!r)
+        return 0;
+    r->slots = entries + 1;
+    r->powered = disk_powered();
+    r->underruns = underruns();
+    events = r;
+    if (debug && RV_HAS(debug, trace))
+        *debug->trace = on_trace;
+    return 1;
+}
+
+/* {count, dropped since the last drain}, then the events. */
+static void *event_log(uint32_t capacity)
+{
+    uint32_t *b = new_reply(capacity);
+    if (!b)
+        return 0;
+    uint32_t state = api->irq_save();
+    struct event_ring *r = events;
+    uint32_t count = 0, dropped = 0;
+    if (r) {
+        uint32_t head = r->head;
+        count = head >= r->tail ? head - r->tail : r->slots - r->tail + head;
+        if (count > (capacity - 8) / sizeof(struct event))
+            count = (capacity - 8) / sizeof(struct event);
+        dropped = r->dropped - r->reported;
+        r->reported += dropped;
+    }
+    b[0] = count;
+    b[1] = dropped;
+    struct event *out = (struct event *)(b + 2);
+    for (uint32_t i = 0, tail = r ? r->tail : 0; i < count; i++) {
+        out[i] = r->events[tail];
+        tail = tail + 1 == r->slots ? 0 : tail + 1;
+        r->tail = tail;
+    }
+    api->irq_restore(state);
+    return b;
+}
+
+/* Hold: Input_HandleButton and idle sleep read the state for themselves, and the
+ * system dispatcher compares it with its cached state when a change is posted,
+ * which updates the lock icon and releases held keys. So a forced state
+ * replaces the read and is then posted. */
+
+static volatile uint32_t hold_forced; /* the state the replaced read returns */
+
+static uint32_t forced_hold(void)
+{
+    return hold_forced;
+}
+
+static const struct rv_hook hold_hook =
+    RV_HOOK_REPLACE(RV_SITE_HoldSwitch_GetLogicalState_entry, forced_hold);
+
+RV_ARM static void post_hold_change(void)
+{
+    HardwareEvent_Post(HardwareSource_HoldChanged);
+}
+
+/* UI task. */
+static void hold_apply(uint32_t request)
+{
+    if (request == HOLD_RELEASE) {
+        if (api->hook_unbind(self, &hold_hook) != RV_OK)
+            return;
+    } else {
+        hold_forced = request == HOLD_LOCKED;
+        int result = api->hook_bind(self, &hold_hook);
+        if (result != RV_OK && result != RV_ALREADY_BOUND)
+            return;
+    }
+    post_hold_change();
+}
+
+/* Extensions on and off by file name, as Settings > Extensions does; the
+ * loader reads the disk and binds sites, so it runs on the UI task. */
+static void extension_apply(void)
+{
+    char *file = (char *)extension_name;
+    file[NAME_BYTES - 1] = 0;
+    extension_result = debug && RV_HAS(debug, set_enabled)
+                           ? debug->set_enabled(file, extension_enable)
+                           : RV_NOT_FOUND;
+    extension_state = RESULT_DONE;
+}
+
+static void *extension_reply(void)
+{
+    uint32_t *b = new_reply(8);
+    if (b) {
+        b[0] = extension_state;
+        b[1] = (uint32_t)extension_result;
+    }
+    return b;
+}
+
+/* First main menu: at boot the first layout shown without an animation, after
+ * the first UI timer tick. The hook is bound at the entry and unbound by its
+ * first call; the layout manager does not exist yet at a boot-time entry. */
+static uint32_t on_layout_shown(void *manager, void *layout, const void *next);
+
+static const struct rv_hook layout_hook =
+    RV_HOOK_FILTER(RV_SITE_UI_DisplayPreparedLayout_call, on_layout_shown);
+
+static uint32_t on_layout_shown(void *manager, void *layout, const void *next)
+{
+    uint32_t result = api->hook_next(next, (uint32_t)manager, (uint32_t)layout, 0, 0, 0, 0);
+    if (word(UI_GetLayoutManager(), LayoutManager_layout) == RES_MainMenus_Main_Layout)
+        boot.main_menu = Clock_GetMicroseconds();
+    api->hook_unbind(self, &layout_hook);
+    return result;
+}
+
+static void first_idle(void *arg)
+{
+    (void)arg;
+    boot.first_idle = Clock_GetMicroseconds();
 }
 
 static int queue(volatile uint8_t *flag)
@@ -662,12 +1004,33 @@ static void do_work(void)
     }
     if (pending_reset)
         reset_now();
+    if (pending_time) {
+        pending_time = 0;
+        time_site(time_request);
+    }
+    if (pending_hold) {
+        pending_hold = 0;
+        hold_apply(hold_request);
+    }
+    if (pending_extension) {
+        pending_extension = 0;
+        extension_apply();
+    }
+    if (pending_events) {
+        pending_events = 0;
+        events_start(events_request);
+    }
+    events_poll();
+    if (events)
+        Timer_Start(timer);
     if (pending_fault) {
         pending_fault = 0;
         if (fault_kind == FAULT_UNDEFINED)
             undefined_instruction();
-        else
+        else if (fault_kind == FAULT_ABORT)
             software_abort();
+        else
+            data_abort();
     }
 }
 
@@ -704,7 +1067,7 @@ static int handle(const struct setup *s, void **data, uint32_t *length, uint32_t
         case HEAP_WATCH:
             return heap_watch(s->value);
         case FAULT:
-            if (s->value != FAULT_UNDEFINED && s->value != FAULT_ABORT)
+            if (s->value < FAULT_UNDEFINED || s->value > FAULT_DATA_ABORT)
                 return 0;
             fault_kind = s->value;
             return queue(&pending_fault);
@@ -714,6 +1077,23 @@ static int handle(const struct setup *s, void **data, uint32_t *length, uint32_t
             flush_mode = s->value;
             flush_delay = s->index;
             return queue(&pending_flush);
+        case TIME_SITE:
+            time_request = value;
+            return queue(&pending_time);
+        case EVENTS:
+            events_request = s->value;
+            return queue(&pending_events);
+        case HOLD:
+            if (s->value > HOLD_UNLOCKED)
+                return 0;
+            hold_request = s->value;
+            return queue(&pending_hold);
+        case EXTENSION:
+            if (s->value > 1 || extension_state == RESULT_PENDING)
+                return 0;
+            extension_enable = s->value;
+            extension_state = RESULT_PENDING;
+            return queue(&pending_extension);
         }
         return 0;
     }
@@ -743,6 +1123,20 @@ static int handle(const struct setup *s, void **data, uint32_t *length, uint32_t
     case BOOT:
         b = boot_times();
         bytes = bytes < sizeof boot ? bytes : sizeof boot;
+        break;
+    case TIMINGS:
+        b = timings(&bytes);
+        break;
+    case EVENT_LOG:
+        if (bytes < 8)
+            return 0;
+        b = event_log(bytes);
+        if (b)
+            bytes = 8 + word(b, 0) * sizeof(struct event);
+        break;
+    case EXTENSION_RESULT:
+        b = extension_reply();
+        bytes = bytes < 8 ? bytes : 8;
         break;
     case HEAP_STATS:
         b = heap_stats();
@@ -857,6 +1251,12 @@ static void unload(void)
     heap_period = 0;
     Timer_Stop(heap_timer);
     api->hook_unbind(self, &draw_hook);
+    api->hook_unbind(self, &marquee_hook);
+    api->hook_unbind(self, &layout_hook);
+    if (api->hook_unbind(self, &hold_hook) == RV_OK)
+        post_hold_change();
+    time_stop_all();
+    events_stop();
     profile_stop();
     if (screen)
         api->free(self, screen);
@@ -883,8 +1283,11 @@ const struct rv_descriptor *rv_module_entry(const struct rv_api *core, rv_extens
     self = handle;
     boot.entry = Clock_GetMicroseconds();
     stack_fill();
-    if (RV_HAS(api, debug_info))
-        heap_object = api->debug_info()->heap;
+    if (RV_HAS(api, debug_info)) {
+        debug = api->debug_info();
+        heap_object = debug->heap;
+    }
+    api->hook_bind(self, &layout_hook); /* a core without the site records no main menu */
     api->setting_read(self, FLUSH_KEY, &boot.flush_at_boot, 4);
     boot.flush_written = boot.flush_at_boot;
     api->timer_start(self, 1, 0, first_idle, 0);

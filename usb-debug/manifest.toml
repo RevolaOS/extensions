@@ -4,7 +4,7 @@ description = "Lets a computer inspect and control the iPod over USB for debuggi
 version = "0.1.0"
 author = "RevolaOS"
 license = "GPL-3.0-only"
-api = "1.27"
+api = "1.28"
 enabled = false
 
 [[module]]
