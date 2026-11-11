@@ -1,0 +1,14 @@
+id = "iap-auth-bypass"
+name = "iAP Auth Bypass"
+description = "Let accessories use authentication-gated iAP commands without an Apple authentication chip."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Adapted from RepriseOS"
+license = "GPL-3.0-only"
+api = "1.29"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
