@@ -1,0 +1,13 @@
+id = "eu-volume-limit"
+name = "EU Volume Limit"
+description = "With EU Volume Limit off, volume goes 15% higher than stock, as on non-EU iPods. No volume warning or lowering after a restart or long listening."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+api = "1.30"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
