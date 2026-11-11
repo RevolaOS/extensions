@@ -37,6 +37,16 @@ Vendor control requests to the device (IN bmRequestType 0xC0, OUT 0x40), all lit
 
 INFO: "RVUD", protocol version u16 (2), pad, firmware id, core build, maximum transfer, display pipe base, Apple heap total and free bytes, address of the core's extension list head, u16 offsets of next, owner, file (the extension's file name without `.rvx`), live, peak and failure in a core extension record, the clock rate in Hz, then the address of EXTENSION's name buffer.
 
+## Host sequencing
+
+TIME_SITE has one pending request slot. After requesting a site, poll TIMINGS until that site appears before sending another registration; after requesting stop, wait for an empty result. An unsupported or exclusively bound site may never appear, so use a bounded wait and report that it was not timed. Stop timing after collection or registration errors as well. An unacknowledged stop means timing may still be active and must be reported as a failure.
+
+INPUT wheel movements use Apple's accumulator and are not exact list-row increments. The host waits for new motion to be consumed before lifting. This does not lock navigation to a screen: wheel motion on Now Playing changes volume, and a preceding SCREEN capture cannot prevent a later screen transition.
+
+EVENT_LOG's underrun count covers output buffers filled with silence because the queue was empty. Partial buffers are not counted. Disk-power events describe the ATA controller clock gate, not the drive's spin state.
+
+FAULT enters a panic handler with interrupts stopped, so USB Debug cannot receive a subsequent RESET there. Use the panic screen's fresh Center press for controlled recovery. Menu + Center is a different reset path and may discard the pending crash record.
+
 ## Emulator test build
 
 The emulator has no USB controller. `make SDK=… MAILBOX=1` builds a variant that also services a mailbox in its own memory every 100 ms through the same request handler. The mailbox address is the core's last log line. Layout: tag "USBDBG", the 8-byte setup packet, status (1 request, 2 done, 3 stall, 4 not this extension's), reply address, reply length. Never install that build on a device.
