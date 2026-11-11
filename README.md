@@ -9,6 +9,7 @@ Each extension is one file on the iPod, `/Revola/Extensions/<id>.rvx`, and can b
 | `clicker-modes` | Clicker Modes: choose where the click wheel sound plays, the iPod's speaker, headphones, both or off | on |
 | `eu-volume-limit` | EU Volume Limit: with EU Volume Limit off, volume goes 15% higher than stock, as on non-EU iPods, without the volume warning or automatic lowering | on |
 | `iap-auth-bypass` | iAP Auth Bypass: let accessories use authentication-gated iAP commands without an Apple authentication chip | on |
+| `playback-queue` | Playback Queue: Play Next, Play Last, and a list to reorder, remove or clear upcoming songs and audio podcast episodes, including queueing while idle | on |
 | `usb-debug` | USB Debug: lets a computer inspect and control the iPod over USB for debugging while music keeps playing; turn it off to sync | off |
 
 Build one with `make -C <directory> SDK=/path/to/revola-sdk`; `<directory>/build/<id>.rvx` is what goes to `/Revola/Extensions/<id>.rvx`.

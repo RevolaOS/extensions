@@ -1,0 +1,14 @@
+id = "playback-queue"
+name = "Playback Queue"
+description = "Queue songs, albums, artists or podcast episodes with Play Next or Play Last. Manage the queue in Up Next."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Partly adapted from RepriseOS"
+license = "GPL-3.0-only"
+api = "1.33"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
