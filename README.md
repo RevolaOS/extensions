@@ -10,6 +10,7 @@ Each extension is one file on the iPod, `/Revola/Extensions/<id>.rvx`, and can b
 | `eu-volume-limit` | EU Volume Limit: with EU Volume Limit off, volume goes 15% higher than stock, as on non-EU iPods, without the volume warning or automatic lowering | on |
 | `iap-auth-bypass` | iAP Auth Bypass: let accessories use authentication-gated iAP commands without an Apple authentication chip | on |
 | `playback-queue` | Playback Queue: Play Next, Play Last, and a list to reorder, remove or clear upcoming songs and audio podcast episodes, including queueing while idle | on |
+| `progress-indicator` | Progress Indicator: half-filled status circles for partially played podcasts and iTunes U items | on |
 | `usb-debug` | USB Debug: lets a computer inspect and control the iPod over USB for debugging while music keeps playing; turn it off to sync | off |
 
 Build one with `make -C <directory> SDK=/path/to/revola-sdk`; `<directory>/build/<id>.rvx` is what goes to `/Revola/Extensions/<id>.rvx`.
