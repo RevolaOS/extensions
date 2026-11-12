@@ -6,6 +6,7 @@ import ctypes
 import subprocess
 import sys
 import tempfile
+from itertools import pairwise
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
@@ -139,6 +140,19 @@ def noise(count, seed):
     return frames
 
 
+FADE = 128
+
+
+def faded(old, new):
+    """What rv_fade plays after a take: old blended into new over the first FADE
+    frames at weights 1 to FADE, floor-shifted as C's arithmetic shift does, then new."""
+    out = []
+    for i, (a, b) in enumerate(zip(old, new)):
+        weight = min(i + 1, FADE)
+        out.append(tuple((x * (FADE - weight) + y * weight) >> 7 for x, y in zip(a, b)))
+    return out
+
+
 def process_tests(dll):
     publish = dll.channels_publish
     publish.argtypes = [ctypes.POINTER(Set)]
@@ -152,61 +166,100 @@ def process_tests(dll):
     dll.test_irq_calls.restype = ctypes.c_uint32
     count = 512
 
-    def run(frames):
-        buffer = (ctypes.c_int16 * (2 * count))(*[s for frame in frames for s in frame])
-        process(buffer, count)
-        return [(buffer[2 * i], buffer[2 * i + 1]) for i in range(count)]
+    def run(frames, *splits):
+        """Processes the frames in one buffer, or in buffers cut at the splits."""
+        buffer = (ctypes.c_int16 * (2 * len(frames)))(
+            *[s for frame in frames for s in frame]
+        )
+        edges = [0, *splits, len(frames)]
+        for first, last in pairwise(edges):
+            process(
+                ctypes.cast(ctypes.byref(buffer, 4 * first), process.argtypes[0]),
+                last - first,
+            )
+        return [(buffer[2 * i], buffer[2 * i + 1]) for i in range(len(frames))]
 
     def designed(percent):
         gain, cross = ctypes.c_int32(), ctypes.c_int32()
         coefficients(percent, gain, cross)
         return gain.value, cross.value
 
+    # What plays and, after a take, what fades out: (mode, gain, cross).
+    players = {"new": (STEREO, 0, 0), "old": None}
+
+    def switch(mode, width=0):
+        """Publishes a set; `expected` then fades from the mode that played."""
+        publish(Set(mode=mode, width=width))
+        players["old"] = players["new"]
+        players["new"] = (
+            (mode, *designed(5 * width)) if mode == CUSTOM else (mode, 0, 0)
+        )
+
+    def expected(frames):
+        old, players["old"] = players["old"], None
+        new = players["new"]
+        return faded(model(old[0], frames, *old[1:]), model(new[0], frames, *new[1:]))
+
+    def play(frames, *splits):
+        """Runs the frames and checks them against the model, returning them."""
+        got = run(frames, *splits)
+        assert got == expected(frames), splits
+        return got
+
     # Stereo leaves the stream alone; one publish masks interrupts once.
-    publish(Set(mode=STEREO))
+    switch(STEREO)
     frames = noise(count, 1)
-    assert run(frames) == frames
+    assert play(frames) == frames
     assert dll.test_irq_calls() == 2
 
-    # Each fixed mode against its model.
+    # Each fixed mode against its model, faded in from the last.
     for mode in (MONO, LEFT, RIGHT, KARAOKE, SWAP):
-        publish(Set(mode=mode))
+        switch(mode)
         frames = noise(count, 2 + mode)
-        assert run(frames) == model(mode, frames), MODES[mode]
+        play(frames)
 
     # Custom at several widths; 100 % is the input bit for bit.
     for index in (0, 10, 20, 30, 50):
-        publish(Set(mode=CUSTOM, width=index))
+        switch(CUSTOM, index)
         frames = noise(count, 20 + index)
-        expected = model(CUSTOM, frames, *designed(5 * index))
-        assert run(frames) == expected, index
+        play(frames)
         if index == 20:
-            assert expected == frames
+            assert model(CUSTOM, frames, *designed(100)) == frames
 
     # No width can leave S16: the four corners at every width, unclamped model.
     corners = [(32767, 32767), (32767, -32768), (-32768, 32767), (-32768, -32768)]
     loud = (corners * (count // 4 + 1))[:count]
     for index in range(51):
-        publish(Set(mode=CUSTOM, width=index))
-        expected = model(CUSTOM, loud, *designed(5 * index))
-        assert all(-32768 <= s <= 32767 for frame in expected for s in frame), index
-        assert run(loud) == expected, index
+        switch(CUSTOM, index)
+        plain = model(CUSTOM, loud, *designed(5 * index))
+        assert all(-32768 <= s <= 32767 for frame in plain for s in frame), index
+        play(loud)
 
     # The latest set wins: one published after a process, and the last of two
-    # published before one.
-    publish(Set(mode=MONO))
+    # published before one, which fades from what played, not from the skipped set.
+    switch(MONO)
     frames = noise(count, 90)
-    assert run(frames) == model(MONO, frames)
-    publish(Set(mode=SWAP))
+    play(frames)
+    switch(SWAP)
     frames = noise(count, 91)
-    assert run(frames) == model(SWAP, frames)
+    play(frames)
     publish(Set(mode=KARAOKE))
-    publish(Set(mode=CUSTOM, width=40))
+    switch(CUSTOM, 40)
     frames = noise(count, 92)
-    assert run(frames) == model(CUSTOM, frames, *designed(200))
-    publish(Set(mode=CUSTOM, width=10))
+    play(frames)
+
+    # A fade spans buffer edges, and ends after FADE frames whatever their size.
+    switch(CUSTOM, 10)
     frames = noise(count, 93)
-    assert run(frames) == model(CUSTOM, frames, *designed(50))
+    play(frames, 17, 100)
+
+    # A set taken during a fade restarts the fade from the set that plays.
+    switch(KARAOKE)
+    frames = noise(64, 94)
+    play(frames)
+    switch(LEFT)
+    frames = noise(count, 95)
+    play(frames)
 
 
 sdk = Path(sys.argv[1]).resolve()

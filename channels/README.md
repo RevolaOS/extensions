@@ -4,7 +4,7 @@ Ported from Rockbox's channel modes (`lib/rbcodec/dsp/channel_mode.c`) by Thom J
 
 A recording mixed for speakers can sound too wide on headphones, and one mixed narrow can sound flat. Channels mixes each channel with a part of the other to narrow or widen the image. The same stage plays Mono for one earbud, one channel in both ears, Karaoke and swapped channels. It runs on the shared [output stage](https://github.com/RevolaOS/revola/blob/main/docs/sdk/audio.md) after Crossfeed and before the Compressor, so it applies to all audio.
 
-Settings > Channels opens a half disc with the listener at its centre: the lobe inside it is as wide as the chosen mode and width leave the image, with L and R at its arms. The two values sit in a row under it: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once and the values keep across restarts. The Settings pane names the mode, or the width under Custom.
+Settings > Channels opens a half disc with the listener at its centre: the lobe inside it is as wide as the chosen mode and width leave the image, with L and R at its arms. The two values sit in a row under it: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once, blended in over about 3 ms so a wheel step does not click, and the values keep across restarts. The Settings pane names the mode, or the width under Custom.
 
 | Mode | What plays |
 |---|---|

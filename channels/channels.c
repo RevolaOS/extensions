@@ -17,10 +17,11 @@
  * Karaoke and Swap need no coefficients.
  *
  * The UI task leaves a set with interrupts masked and moves the generation;
- * the pump task takes it over when it sees the generation move. Only the pump
- * task touches what plays. The coefficients are Q15 and |gain| + |cross| is at
- * most 32768, so a sample times the pair fits int32 and the output cannot
- * leave S16: Thumb multiplies suffice. */
+ * the pump task takes it over when it sees the generation move and fades the
+ * mode that played into the new one. Only the pump task touches what plays.
+ * The coefficients are Q15 and |gain| + |cross| is at most 32768, so a sample
+ * times the pair fits int32 and the output cannot leave S16: Thumb multiplies
+ * suffice. */
 
 #include "channels.h"
 #include "rv_audio.h"
@@ -31,8 +32,12 @@ static struct channels_set next;
 static struct rv_handoff handoff;
 
 /* Pump task only. */
-static struct channels_set playing;
-static int32_t gain, cross;
+struct channels_state {
+    struct channels_set set;
+    int32_t gain, cross;
+};
+static struct channels_state playing, fading;
+static struct rv_fade fade;
 
 void channels_start(const struct rv_api *core)
 {
@@ -63,14 +68,16 @@ void channels_coefficients(unsigned int percent, int32_t *gain_out, int32_t *cro
  * generation again, and the next call takes that one. */
 static void take(void)
 {
-    rv_handoff_take(&handoff, &playing, &next, sizeof playing);
-    if (playing.mode == CHANNELS_CUSTOM)
-        channels_coefficients(5u * playing.width, &gain, &cross);
+    fading = playing;
+    rv_handoff_take(&handoff, &playing.set, &next, sizeof playing.set);
+    if (playing.set.mode == CHANNELS_CUSTOM)
+        channels_coefficients(5u * playing.set.width, &playing.gain, &playing.cross);
+    rv_fade_start(&fade, 0);
 }
 
-static void custom(int16_t *samples, uint32_t frames)
+static void custom(const struct channels_state *state, int16_t *samples, uint32_t frames)
 {
-    const int32_t g = gain, c = cross;
+    const int32_t g = state->gain, c = state->cross;
     for (int16_t *end = samples + frames * 2; samples < end; samples += 2) {
         int32_t left = samples[0], right = samples[1];
         samples[0] = (int16_t)((left * g + right * c + 16384) >> 15);
@@ -111,11 +118,9 @@ static void swap(int16_t *samples, uint32_t frames)
     }
 }
 
-void channels_process(int16_t *samples, uint32_t frames)
+static void run(void *state, int16_t *samples, uint32_t frames)
 {
-    if (rv_handoff_pending(&handoff))
-        take();
-    switch (playing.mode) {
+    switch (((struct channels_state *)state)->set.mode) {
     case CHANNELS_MONO:
         mono(samples, frames);
         break;
@@ -132,9 +137,16 @@ void channels_process(int16_t *samples, uint32_t frames)
         swap(samples, frames);
         break;
     case CHANNELS_CUSTOM:
-        custom(samples, frames);
+        custom(state, samples, frames);
         break;
     default:
         break;
     }
+}
+
+void channels_process(int16_t *samples, uint32_t frames)
+{
+    if (rv_handoff_pending(&handoff))
+        take();
+    rv_fade_run(&fade, run, &playing, &fading, samples, frames);
 }
