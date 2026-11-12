@@ -25,7 +25,6 @@ static const char *const titles[PARAM_COUNT] = {"Type", "Precut", "Gain", "Frequ
 static const char *const types[] = {"Off", "Peaking", "Low shelf", "High shelf"};
 
 enum {
-    CANVAS_HEIGHT = 217,
     BAND_LEFT = 42,
     BAND_WIDTH = 54,
     BAND_TOP = 18,
@@ -34,8 +33,7 @@ enum {
     INLINE_TOP = 141, /* Type | Precut, title left and value right */
     INLINE_HEIGHT = 27,
     INLINE_COUNT = PARAM_GAIN,
-    CELL_TOP = INLINE_TOP + INLINE_HEIGHT + 1,
-    CELL_HEIGHT = CANVAS_HEIGHT - CELL_TOP,
+    CELL_TOP = INLINE_TOP + INLINE_HEIGHT + 1, /* the cells run to the bottom of the canvas */
     RESPONSE_POINTS = 261,
     RESPONSE_TOP = 36,
     RESPONSE_BOTTOM = 180,
@@ -196,7 +194,7 @@ static void draw_parameters(const struct rv_context *ctx, const struct rv_canvas
                                                                : RV_CELL_SELECTED;
     }
     rv_canvas_fields(c, INLINE_TOP, INLINE_HEIGHT, titles, values, states, INLINE_COUNT);
-    rv_canvas_cells(c, CELL_TOP, CELL_HEIGHT, titles + INLINE_COUNT, values + INLINE_COUNT,
+    rv_canvas_cells(c, CELL_TOP, c->height - CELL_TOP, titles + INLINE_COUNT, values + INLINE_COUNT,
                     states + INLINE_COUNT, PARAM_COUNT - INLINE_COUNT);
 }
 

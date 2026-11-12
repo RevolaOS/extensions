@@ -27,9 +27,9 @@ enum {
     PLOT_RANGE = 360,  /* tenths of a decibel on either axis */
     TICK_TOP = 106,
     TICK_HEIGHT = 15,
-    CELL_TOP = 123,
-    CELL_HEIGHT = 47,
+    CELL_TOP = 123, /* two rows of cells share the rest of the canvas */
     COLUMNS = 3,
+    ROWS = PARAM_COUNT / COLUMNS,
 };
 
 /* The output level, 0 dB at the top and -36 dB at the bottom: 25 px per 12 dB. */
@@ -152,7 +152,10 @@ static void draw_plot(const struct rv_canvas *c)
 
 static void draw_parameters(const struct rv_canvas *c)
 {
-    for (int row = 0; row < PARAM_COUNT / COLUMNS; row++) {
+    int row_height = (c->height - CELL_TOP - (ROWS - 1)) / ROWS; /* a border between rows */
+    for (int row = 0; row < ROWS; row++) {
+        int top = CELL_TOP + row * (row_height + 1);
+        int height = row == ROWS - 1 ? c->height - top : row_height;
         char text[COLUMNS][LABEL_BYTES];
         const char *values[COLUMNS];
         uint8_t states[COLUMNS];
@@ -163,8 +166,7 @@ static void draw_parameters(const struct rv_canvas *c)
                              : editor.input.depth == DEPTH_EDIT ? RV_CELL_EDITING
                                                                 : RV_CELL_SELECTED;
         }
-        rv_canvas_cells(c, CELL_TOP + row * (CELL_HEIGHT + 1), CELL_HEIGHT,
-                        titles + row * COLUMNS, values, states, COLUMNS);
+        rv_canvas_cells(c, top, height, titles + row * COLUMNS, values, states, COLUMNS);
     }
 }
 

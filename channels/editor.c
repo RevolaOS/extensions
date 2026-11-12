@@ -21,13 +21,11 @@ static const uint8_t keys[PARAM_COUNT] = {KEY_MODE, KEY_WIDTH};
 static const uint8_t counts[PARAM_COUNT] = {CHANNELS_MODES, WIDTH_LABELS};
 
 enum {
-    CANVAS_HEIGHT = 217,
     CENTRE_Y = 154, /* the listener; the baseline of the half disc */
     RADIUS = 110,
     TAG_RADIUS = RADIUS + 14, /* the L and R tags sit just outside the arc */
     TAG_SIZE = 18,
-    CELL_TOP = 169,
-    CELL_HEIGHT = CANVAS_HEIGHT - CELL_TOP,
+    CELL_TOP = 169, /* the cells run to the bottom of the canvas */
 };
 
 static struct {
@@ -174,7 +172,7 @@ static void draw_parameters(const struct rv_canvas *c, int custom)
         if (!custom && parameter != PARAM_MODE)
             states[parameter] |= RV_CELL_MUTED;
     }
-    rv_canvas_cells(c, CELL_TOP, CELL_HEIGHT, titles, values, states, PARAM_COUNT);
+    rv_canvas_cells(c, CELL_TOP, c->height - CELL_TOP, titles, values, states, PARAM_COUNT);
 }
 
 static void draw(const struct rv_context *ctx, const struct rv_gfx *g, int width, int height)

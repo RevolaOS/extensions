@@ -26,15 +26,13 @@ static const uint8_t counts[PARAM_COUNT] = {MODE_LABELS,  PRECUT_LABELS, DIRECT_
                                             CROSS_LABELS, HF_LABELS,     CUTOFF_LABELS};
 
 enum {
-    CANVAS_HEIGHT = 217,
     PLOT_POINTS = 261,
     TICK_TOP = 114,
     TICK_HEIGHT = 22,
     INLINE_TOP = 141, /* Mode | Precut, title left and value right */
     INLINE_HEIGHT = 27,
     INLINE_COUNT = PARAM_DIRECT,
-    CELL_TOP = INLINE_TOP + INLINE_HEIGHT + 1,
-    CELL_HEIGHT = CANVAS_HEIGHT - CELL_TOP,
+    CELL_TOP = INLINE_TOP + INLINE_HEIGHT + 1, /* the cells run to the bottom of the canvas */
     CELL_COUNT = PARAM_COUNT - INLINE_COUNT,
 };
 
@@ -117,7 +115,7 @@ static void draw_parameters(const struct rv_canvas *c)
             states[parameter] |= RV_CELL_MUTED;
     }
     rv_canvas_fields(c, INLINE_TOP, INLINE_HEIGHT, titles, values, states, INLINE_COUNT);
-    rv_canvas_cells(c, CELL_TOP, CELL_HEIGHT, titles + INLINE_COUNT, values + INLINE_COUNT,
+    rv_canvas_cells(c, CELL_TOP, c->height - CELL_TOP, titles + INLINE_COUNT, values + INLINE_COUNT,
                     states + INLINE_COUNT, CELL_COUNT);
 }
 
