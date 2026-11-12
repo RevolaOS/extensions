@@ -18,6 +18,5 @@ Third-party work included or built upon:
 - wInd3x (https://github.com/freemyipod/wInd3x) by Serge "q3k" Bazanski:
   BootROM DFU exploit, DFU protocol and payload assembler, ported from Go to
   Rust. GPL-2.0-or-later.
-- Cupertino Icons: settings glyphs. MIT.
 
 Apple firmware is never included. Builds read it from the user's own IPSW.

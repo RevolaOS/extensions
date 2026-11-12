@@ -1,0 +1,24 @@
+id = "equalizer"
+name = "Equalizer"
+description = "Stop the EQ presets from distorting, and add a Custom preset with five bands you shape yourself."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Partly adapted from RepriseOS"
+license = "GPL-3.0-only"
+api = "1.37"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
+
+[[module]]
+name = "editor"
+trigger = "screen"
+screens = ["editor"]
+
+[[asset]]
+name = "settings-eq"
+file = "assets/settings-eq.png"
+menu = true
