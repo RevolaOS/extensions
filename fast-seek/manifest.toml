@@ -1,0 +1,14 @@
+id = "fast-seek"
+name = "Fast Seek"
+description = "Seeking in long AAC and Apple Lossless files (audiobooks, podcasts) jumps straight to the target instead of stepping through every frame on the way."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+note = "Same approach as RepriseOS"
+api = "1.43"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
