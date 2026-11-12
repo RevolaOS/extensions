@@ -2,9 +2,9 @@
 
 Ported from Rockbox's channel modes (`lib/rbcodec/dsp/channel_mode.c`) by Thom Johansen and Michael Sevakis, GPL-2.0-or-later.
 
-A recording mixed for speakers can sound too wide on headphones, and one mixed narrow can sound flat; Channels mixes each channel with a part of the other to narrow or widen the image. The same stage plays Mono for one earbud, one channel in both ears, Karaoke and swapped channels. It runs on the output after the EQ and Crossfeed, and before the Compressor, so it applies to all audio.
+A recording mixed for speakers can sound too wide on headphones, and one mixed narrow can sound flat. Channels mixes each channel with a part of the other to narrow or widen the image. The same stage plays Mono for one earbud, one channel in both ears, Karaoke and swapped channels. It runs on the shared [output stage](https://github.com/RevolaOS/revola/blob/main/docs/sdk/audio.md) after Crossfeed and before the Compressor, so it applies to all audio.
 
-Settings > Channels opens a half disc with the listener at its centre: the lobe inside it is as wide as the chosen mode and width leave the image, with L and R at its arms. The two values sit in a row under it: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once, and the values keep their settings across restarts. The Settings pane names the mode, or the width under Custom.
+Settings > Channels opens a half disc with the listener at its centre: the lobe inside it is as wide as the chosen mode and width leave the image, with L and R at its arms. The two values sit in a row under it: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once and the values keep across restarts. The Settings pane names the mode, or the width under Custom.
 
 | Mode | What plays |
 |---|---|
@@ -18,8 +18,11 @@ Settings > Channels opens a half disc with the listener at its centre: the lobe 
 
 Below 100 % a part of each channel is added to the other, down to Mono at 0 %. Above 100 % a part of each channel is taken away from the other, so sounds move further out. No width can clip: at every width the two parts add up to one.
 
-16-bit stereo only, which is everything the iPod plays. The output-stage effects run in a fixed order: Crossfeed, Channels, Compressor.
+Enabling it adds the Channels row after Sound Check. With the mode Stereo it costs nothing per sample.
 
-Disabled by default. Enabling it adds the Channels row after Sound Check; with the mode Stereo it costs its image and nothing per sample.
-
-Build with `make -C channels SDK=/path/to/revola-sdk` from the extensions repository, using SDK API 1.40 or later; `make check SDK=...` runs the host tests against an integer model of Rockbox's loops. The Settings icon `assets/settings-channels.png` is drawn by `assets/render.py` with ImageMagick; `--check` compares the committed file with a fresh render. Copy `channels/build/channels.rvx` to `/Revola/Extensions/channels.rvx` on an iPod running the matching core.
+| | |
+|---|---|
+| Default | off |
+| Memory | image only |
+| Settings | mode and width |
+| Minimum SDK | 1.40 |

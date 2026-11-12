@@ -14,6 +14,11 @@ Changes Apple's EU volume rules on 2.0.5. Bit 0 and bit 7 are Apple's region fla
 
 An iPod with bit 0 alone is held at 222 in stock, with no switch to change it.
 
-Apple stores the switch. The extension holds no memory beyond its image.
+Disabled, Apple's behaviour returns at once, except the startup clamp, which returns at the next boot. The current volume and the saved limit stay as they are.
 
-Enabled by default. Disabled, Apple's behaviour returns at once, except the startup clamp, which returns at the next boot. The current volume and the saved limit stay as they are.
+| | |
+|---|---|
+| Default | on |
+| Memory | image only |
+| Settings | none; Apple stores the switch |
+| Minimum SDK | 1.30 |

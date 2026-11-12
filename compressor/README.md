@@ -2,9 +2,9 @@
 
 Ported from Rockbox's compressor (`lib/rbcodec/dsp/compressor.c`) by Jeffrey Goode, GPL-2.0-or-later.
 
-A compressor turns the loud parts of a recording down so the quiet parts can be heard at the same volume: classical and jazz on a train, films and audiobooks at night. It runs on the output after the EQ, so it applies to all audio.
+A compressor turns the loud parts of a recording down so the quiet parts can be heard at the same volume: classical and jazz on a train, films and audiobooks at night. It runs after Channels on the shared [output stage](https://github.com/RevolaOS/revola/blob/main/docs/sdk/audio.md), so it applies to all audio.
 
-Settings > Compressor opens a plot of the output level for every input level: a straight line while nothing changes, bending at the threshold once the compressor works. The six values sit in two rows under the plot: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once, and the values keep their settings across restarts. The Settings pane says Off or On.
+Settings > Compressor opens a plot of the output level for every input level: a straight line while nothing changes, bending at the threshold once the compressor works. The six values sit in two rows under the plot: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once and the values keep across restarts. The Settings pane says Off or On.
 
 | Value | Range | Default | What it does |
 |---|---|---|---|
@@ -17,8 +17,11 @@ Settings > Compressor opens a plot of the output level for every input level: a 
 
 The gain follows the average of the two channels with the treble weighted up, as Rockbox's sidechain does, and applies to the samples of 3 ms earlier, so a limiter can pull a peak down before it plays. With Makeup on, a loud passage can reach full scale; the output saturates rather than wraps.
 
-It follows the output sample rate, 8 to 48 kHz. 16-bit stereo only, which is everything the iPod plays. The output-stage effects run in a fixed order: Crossfeed, Channels, Compressor.
+Enabling it adds the Compressor row after Sound Check. With Threshold at Off it costs nothing per sample.
 
-Disabled by default. Enabling it adds the Compressor row after Sound Check; with Threshold at Off it costs its image and nothing per sample.
-
-Build with `make -C compressor SDK=/path/to/revola-sdk` from the extensions repository, using SDK API 1.40 or later; `make check SDK=...` runs the host tests against an integer model of Rockbox's loop. The Settings icon `assets/settings-compressor.png` is drawn by `assets/render.py` with ImageMagick; `--check` compares the committed file with a fresh render. Copy `compressor/build/compressor.rvx` to `/Revola/Extensions/compressor.rvx` on an iPod running the matching core.
+| | |
+|---|---|
+| Default | off |
+| Memory | image only |
+| Settings | the six values |
+| Minimum SDK | 1.40 |
