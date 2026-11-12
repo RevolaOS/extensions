@@ -1,0 +1,24 @@
+id = "crossfeed"
+name = "Crossfeed"
+description = "Feed a filtered part of each channel into the other so hard-panned stereo is easier on headphones, with Rockbox's Simple and Custom modes."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Ported from Rockbox"
+license = "GPL-3.0-only"
+api = "1.39"
+enabled = false
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
+
+[[module]]
+name = "editor"
+trigger = "screen"
+screens = ["editor"]
+
+[[asset]]
+name = "settings-crossfeed"
+file = "assets/settings-crossfeed.png"
+menu = true
