@@ -20,8 +20,6 @@
 
 enum {
     NATIVE_STAGES = 3,
-    FADE_FRAMES = 128,
-    FADE_CHUNK_FRAMES = 32,
     PRECUT_LIMIT = 100,
     UNITY = 1 << 24,
 };
@@ -52,7 +50,7 @@ static uint32_t native_precut;
 
 /* Pump task only. */
 static struct eq_stage playing[EQ_BANDS], fading[EQ_BANDS];
-static uint32_t fade_remaining;
+static struct rv_fade fade;
 
 void eq_engine_start(const struct rv_api *core)
 {
@@ -71,13 +69,13 @@ static unsigned int precut_for(const int32_t (*set)[5], unsigned int count, unsi
 }
 
 /* Interrupts masked. */
-static void leave(const int32_t (*set)[5], unsigned int count, unsigned int fade)
+static void leave(const int32_t (*set)[5], unsigned int count, unsigned int blend)
 {
     for (unsigned int i = 0; i < count; i++)
         for (unsigned int c = 0; c < 5; c++)
             next.coefficients[i][c] = set[i][c];
     next.count = (uint8_t)count;
-    next.fade = (uint8_t)fade;
+    next.fade = (uint8_t)blend;
     handoff.generation++;
 }
 
@@ -190,7 +188,15 @@ static void take(void)
             i >= set.count || (c[0] == UNITY && !(c[1] | c[2] | c[3] | c[4]));
     }
     eq_cascade_rest(playing, EQ_BANDS);
-    fade_remaining = set.fade ? FADE_FRAMES : 0;
+    if (set.fade)
+        rv_fade_start(&fade, 0);
+    else
+        fade.remaining = 0;
+}
+
+static void cascade(void *stages, int16_t *samples, uint32_t frames)
+{
+    eq_cascade(stages, EQ_BANDS, samples, frames);
 }
 
 void eq_process(struct ThreeBandEQ *eq, int16_t *samples, uint32_t frames, int16_t **output,
@@ -209,27 +215,9 @@ void eq_process(struct ThreeBandEQ *eq, int16_t *samples, uint32_t frames, int16
     if (rest_pending) {
         rest_pending = 0;
         eq_cascade_rest(playing, EQ_BANDS);
-        fade_remaining = 0;
+        fade.remaining = 0;
     }
-    while (fade_remaining && frames) {
-        int16_t previous[FADE_CHUNK_FRAMES * 2];
-        unsigned int chunk = frames < FADE_CHUNK_FRAMES ? frames : FADE_CHUNK_FRAMES;
-        if (chunk > fade_remaining)
-            chunk = fade_remaining;
-        memcpy(previous, samples, chunk * 2 * sizeof *samples);
-        eq_cascade(fading, EQ_BANDS, previous, chunk);
-        eq_cascade(playing, EQ_BANDS, samples, chunk);
-        for (unsigned int i = 0; i < chunk * 2; i += 2) {
-            int32_t weight = (int32_t)(FADE_FRAMES + 1 - fade_remaining);
-            for (unsigned int n = i; n < i + 2; n++)
-                samples[n] = (int16_t)((previous[n] * (FADE_FRAMES - weight) + samples[n] * weight) /
-                                       FADE_FRAMES);
-            fade_remaining--;
-        }
-        frames -= chunk;
-        samples += chunk * 2;
-    }
-    eq_cascade(playing, EQ_BANDS, samples, frames);
+    rv_fade_run(&fade, cascade, playing, fading, samples, frames);
 }
 
 void eq_engine_stop(void)

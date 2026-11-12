@@ -246,24 +246,24 @@ int main(void)
             for (unsigned int c = 0; c < 2; c++) {
                 unsigned int n = i * 2 + c;
                 expected[n] = (int16_t)(((int32_t)previous[n] * (127 - (int)i) +
-                                         (int32_t)expected[n] * ((int)i + 1)) /
-                                        128);
+                                         (int32_t)expected[n] * ((int)i + 1)) >>
+                                        7);
             }
         process(samples, 17);
-        assert(fade_remaining == 111);
+        assert(fade.remaining == 111);
         process(samples + 34, 239);
-        assert(!fade_remaining && !memcmp(samples, expected, 512 * sizeof *samples));
+        assert(!fade.remaining && !memcmp(samples, expected, 512 * sizeof *samples));
         assert(!memcmp(record, untouched, sizeof record));
 
         /* A reset puts the histories at rest and ends a fade. */
         values[eq_slot(4, EQ_GAIN)] = (uint8_t)gain_choice(-50);
         assert(eq_publish(values));
         process(samples, 1);
-        assert(fade_remaining == 127);
+        assert(fade.remaining == 127);
         eq_reset((struct ThreeBandEQ *)record, NULL);
         assert(rest_pending);
         process(samples, 1);
-        assert(!fade_remaining);
+        assert(!fade.remaining);
         eq_reset((struct ThreeBandEQ *)record, NULL);
         process(samples, 0);
         histories_at_rest();
