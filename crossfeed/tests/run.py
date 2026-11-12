@@ -13,10 +13,17 @@ root = Path(__file__).resolve().parent
 Q31 = 1 << 31
 SHIFT = 12
 RATES = (44100, 48000, 32000, 22050, 8000)
+AUTO = 1  # CROSSFEED_PRECUT_AUTO
+DIRECTS = range(-60, 1, 5)
+CROSSES = range(-120, -29, 5)
 
 
 class Custom(ctypes.Structure):
-    _fields_ = [("gain", ctypes.c_int32), ("coefs", ctypes.c_int32 * 3)]
+    _fields_ = [
+        ("gain", ctypes.c_int32),
+        ("coefs", ctypes.c_int32 * 3),
+        ("precut", ctypes.c_int16),
+    ]
 
 
 class Set(ctypes.Structure):
@@ -26,6 +33,7 @@ class Set(ctypes.Structure):
         ("cross", ctypes.c_int16),
         ("hf", ctypes.c_int16),
         ("cutoff", ctypes.c_uint16),
+        ("precut", ctypes.c_int16),
     ]
 
 
@@ -48,11 +56,21 @@ def to_q31(value):
     return int(math.floor(value * Q31 + 0.5))
 
 
-def reference_design(rate, direct, cross, hf, cutoff):
+def auto_precut(direct, cross):
+    """The smallest half-decibel step that keeps direct + cross at or below
+    0 dB, in tenths."""
+    total = 10 ** (direct / 200) + 10 ** (cross / 200)
+    return -5 * max(0, math.ceil(40 * math.log10(total)))
+
+
+def reference_design(rate, direct, cross, hf, cutoff, precut=0):
     """Rockbox's custom crossfeed in floating point: a bilinear first-order
     high shelf with its cutoff moved to the -3 dB point, scaled by the cross
-    gain; gains in tenths of a decibel."""
-    scaler = 10 ** (cross / 200)
+    gain; gains in tenths of a decibel. The precut lowers both paths."""
+    if precut == AUTO:
+        precut = auto_precut(direct, cross)
+    direct += precut
+    scaler = 10 ** ((cross + precut) / 200)
     g = 10 ** ((hf - cross) / 400)
     theta = min(math.pi * cutoff / (g * rate), 0.45 * math.pi)  # held below Nyquist
     s, c = math.sin(theta), math.cos(theta)
@@ -67,7 +85,7 @@ def reference_design(rate, direct, cross, hf, cutoff):
 def design_tests(dll):
     design = dll.crossfeed_design
     design.argtypes = [ctypes.POINTER(Custom), ctypes.c_uint] + [ctypes.c_int] * 3
-    design.argtypes += [ctypes.c_uint]
+    design.argtypes += [ctypes.c_uint, ctypes.c_int]
     design.restype = None
     cases = [
         (-15, -60, -160, 700),
@@ -80,8 +98,9 @@ def design_tests(dll):
     for rate in RATES:
         for direct, cross, hf, cutoff in cases:
             out = Custom()
-            design(out, rate, direct, cross, hf, cutoff)
+            design(out, rate, direct, cross, hf, cutoff, 0)
             gain, coefs = reference_design(rate, direct, cross, hf, cutoff)
+            assert out.precut == 0
             # The gain table is s3.28.
             assert abs(out.gain - gain) <= 8, (rate, direct, out.gain, gain)
             for actual, expected in zip(out.coefs, coefs, strict=True):
@@ -98,8 +117,32 @@ def design_tests(dll):
             # Everything stays below full scale, as the Q31 format needs.
             assert all(abs(c) < Q31 for c in out.coefs)
     out = Custom()
-    design(out, 44100, 0, -60, -160, 700)
+    design(out, 44100, 0, -60, -160, 700, 0)
     assert out.gain == Q31 - 1
+
+    # Auto at every Direct and Cross: the float rule's step, both paths
+    # lowered by it, and a centred passage at or below full scale in the bass.
+    for direct in DIRECTS:
+        for cross in CROSSES:
+            out = Custom()
+            design(out, 44100, direct, cross, -160, 700, AUTO)
+            precut = auto_precut(direct, cross)
+            assert out.precut == precut, (direct, cross, out.precut, precut)
+            gain, coefs = reference_design(44100, direct, cross, -160, 700, precut)
+            # Two s3.28 table values multiplied truncate one more step.
+            assert abs(out.gain - gain) <= 16, (direct, cross, out.gain, gain)
+            for actual, expected in zip(out.coefs, coefs, strict=True):
+                assert abs(actual - expected) <= 1024, (direct, cross, actual, expected)
+            b0, b1, a1 = (c / Q31 for c in out.coefs)
+            assert out.gain / Q31 + (b0 + b1) / (1 - a1) <= 1.0 + 1e-6
+    # A fixed precut lowers both paths by exactly that.
+    out = Custom()
+    design(out, 44100, -15, -60, -160, 700, -30)
+    assert out.precut == -30
+    gain, coefs = reference_design(44100, -15, -60, -160, 700, -30)
+    assert abs(out.gain - gain) <= 16
+    assert all(abs(a - e) <= 1024 for a, e in zip(out.coefs, coefs, strict=True))
+    assert auto_precut(-15, -60) == -30 and auto_precut(0, -30) == -50
 
 
 def label_tests(dll):
@@ -117,6 +160,9 @@ def label_tests(dll):
     assert labels("cross_labels", 19)[12] == "-6.0 dB"
     assert labels("hf_labels", 37)[16] == "-16.0 dB"
     assert labels("cutoff_labels", 16)[2] == "700 Hz"
+    assert labels("precut_labels", 14) == ["Auto"] + decibels(0, 1) + [
+        f"{-(i + 1) / 2:.1f} dB" for i in range(12)
+    ]
 
 
 def response_tests(dll):
@@ -125,7 +171,7 @@ def response_tests(dll):
     response = dll.crossfeed_response
     response.argtypes = [ctypes.POINTER(Set), ctypes.c_uint]
     response.argtypes += [ctypes.POINTER(ctypes.c_int16), ctypes.c_uint]
-    response.restype = None
+    response.restype = ctypes.c_int
     points = 261
     cases = [
         (-15, -60, -160, 700),
@@ -136,7 +182,7 @@ def response_tests(dll):
     for direct, cross, hf, cutoff in cases:
         curve = (ctypes.c_int16 * points)()
         bank = Set(mode=2, direct=direct, cross=cross, hf=hf, cutoff=cutoff)
-        response(bank, 44100, curve, points)
+        assert response(bank, 44100, curve, points) == 0
         curve = list(curve)
         assert abs(curve[0] - cross) <= 3, (cross, curve[0])
         assert abs(curve[-1] - hf) <= 3, (hf, curve[-1])
@@ -157,6 +203,24 @@ def response_tests(dll):
             z = complex(math.cos(w), -math.sin(w))
             expected = 200 * math.log10(abs((b0 + b1 * z) / (1 - a1 * z)))
             assert abs(tenths - expected) <= 1, (hz, tenths, expected)
+
+    # The precut returned is the design's, and lowers the whole curve by it.
+    design = dll.crossfeed_design
+    for direct in DIRECTS:
+        for cross in CROSSES:
+            bank = Set(mode=2, direct=direct, cross=cross, hf=-160, cutoff=700)
+            plain = (ctypes.c_int16 * points)()
+            assert response(bank, 44100, plain, points) == 0
+            for precut in (AUTO, -30, -60):
+                out = Custom()
+                design(out, 44100, direct, cross, -160, 700, precut)
+                bank.precut = precut
+                curve = (ctypes.c_int16 * points)()
+                got = response(bank, 44100, curve, points)
+                assert got == out.precut, (direct, cross, precut, got, out.precut)
+                assert all(
+                    abs(c - (f + got)) <= 1 for c, f in zip(curve, plain, strict=True)
+                )
 
 
 def wrap(value):
@@ -238,7 +302,7 @@ def process_tests(dll):
     process.restype = None
     design = dll.crossfeed_design
     design.argtypes = [ctypes.POINTER(Custom), ctypes.c_uint] + [ctypes.c_int] * 3
-    design.argtypes += [ctypes.c_uint]
+    design.argtypes += [ctypes.c_uint, ctypes.c_int]
     design.restype = None
     count = 512
 
@@ -270,12 +334,14 @@ def process_tests(dll):
 
     # Custom at every rate, the delay line and shelf history carried across
     # blocks; the panned impulse reaches the other channel delayed.
-    def custom_set(direct, cross, hf, cutoff):
-        return Set(mode=2, direct=direct, cross=cross, hf=hf, cutoff=cutoff)
+    def custom_set(direct, cross, hf, cutoff, precut=0):
+        return Set(
+            mode=2, direct=direct, cross=cross, hf=hf, cutoff=cutoff, precut=precut
+        )
 
     def designed(rate, bank):
         out = Custom()
-        design(out, rate, bank.direct, bank.cross, bank.hf, bank.cutoff)
+        design(out, rate, bank.direct, bank.cross, bank.hf, bank.cutoff, bank.precut)
         return out.gain, list(out.coefs)
 
     for rate in RATES:
@@ -308,12 +374,39 @@ def process_tests(dll):
     frames = noise(count, 12, True)
     assert run(frames, 44100) == Reference(44100).simple(frames)
 
-    # Correlated full-scale input saturates instead of wrapping in Custom.
+    # Correlated full-scale input saturates instead of wrapping in Custom
+    # without a precut.
     publish(custom_set(0, -30, -60, 500))
     loud = [(32767, 32767)] * count
     got = run(loud, 44100)
     assert got[-1] == (32767, 32767), got[-1]
     assert all(-32768 <= s <= 32767 for frame in got for s in frame)
+
+    # A full-scale centred bass tone at the defaults clips without a precut
+    # and stays inside full scale with Auto, and the Auto set plays bit for
+    # bit as the reference with its design.
+    def tone():
+        return [
+            (s, s)
+            for s in (
+                round(32767 * math.sin(2 * math.pi * 60 * i / 44100))
+                for i in range(count)
+            )
+        ]
+
+    publish(custom_set(-15, -60, -160, 700))
+    got = run(tone(), 44100)
+    assert sum(s in (32767, -32768) for frame in got for s in frame) > count // 4
+    bank = custom_set(-15, -60, -160, 700, AUTO)
+    publish(bank)
+    run(tone(), 44100)  # the shelf and delay settle
+    got = run(tone(), 44100)
+    assert all(abs(s) < 32767 for frame in got for s in frame)
+    publish(Set(mode=1))
+    run(noise(count, 13, True), 44100)
+    publish(bank)
+    frames = noise(count, 14, True)
+    assert run(frames, 44100) == Reference(44100).custom(frames, *designed(44100, bank))
 
 
 sdk = Path(sys.argv[1]).resolve()

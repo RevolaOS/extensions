@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-/* The Edit Crossfeed screen: what each ear hears, as two curves over the four
+/* The Edit Crossfeed screen: what each ear hears, as two curves over the five
  * values of the Custom cross path. The flat line is the ear's own channel at
  * the direct gain; the shelf is the other channel, at the cross gain in the
- * bass and the attenuation above the cutoff. The wheel picks a value, Select
- * edits it and Menu steps back out. Every change plays at once. */
+ * bass and the attenuation above the cutoff; both sit lower by the precut. The
+ * wheel picks a value, Select edits it and Menu steps back out. Every change
+ * plays at once. */
 
 #include "labels.h"
 #include "rv_libc.h"
@@ -16,13 +17,13 @@ static rv_extension_handle self;
 
 enum { MODE_PARAMETER, MODE_EDIT };
 
-enum { PARAM_DIRECT, PARAM_CROSS, PARAM_HF, PARAM_CUTOFF, PARAM_COUNT };
-static const char *const titles[PARAM_COUNT] = {"Direct", "Cross", "Highs", "Cutoff"};
-static const uint8_t keys[PARAM_COUNT] = {KEY_DIRECT, KEY_CROSS, KEY_HF, KEY_CUTOFF};
-static const uint8_t counts[PARAM_COUNT] = {DIRECT_LABELS, CROSS_LABELS, HF_LABELS,
-                                            CUTOFF_LABELS};
+enum { PARAM_DIRECT, PARAM_CROSS, PARAM_HF, PARAM_CUTOFF, PARAM_PRECUT, PARAM_COUNT };
+static const char *const titles[PARAM_COUNT] = {"Direct", "Cross", "Highs", "Cutoff", "Precut"};
+static const uint8_t keys[PARAM_COUNT] = {KEY_DIRECT, KEY_CROSS, KEY_HF, KEY_CUTOFF, KEY_PRECUT};
+static const uint8_t counts[PARAM_COUNT] = {DIRECT_LABELS, CROSS_LABELS, HF_LABELS, CUTOFF_LABELS,
+                                            PRECUT_LABELS};
 static const char *const *const labels[PARAM_COUNT] = {direct_labels, cross_labels, hf_labels,
-                                                       cutoff_labels};
+                                                       cutoff_labels, precut_labels};
 
 enum {
     CANVAS_WIDTH = 320,
@@ -44,6 +45,7 @@ enum {
 static struct {
     int parameter, mode;
     int menu_taken; /* the Menu press left edit mode; its release is not the system's */
+    int precut;     /* applied, tenths of a decibel at most 0 */
     int16_t curve[PLOT_POINTS];
 } editor;
 
@@ -65,10 +67,11 @@ static void compute_curve(void)
         .cross_tenths = (int16_t)cross_tenths(value(PARAM_CROSS)),
         .hf_tenths = (int16_t)hf_tenths(value(PARAM_HF)),
         .cutoff_hz = (uint16_t)cutoff_hz(value(PARAM_CUTOFF)),
+        .precut_tenths = (int16_t)precut_tenths(value(PARAM_PRECUT)),
     };
     /* Drawn for 44.1 kHz, the rate nearly everything plays at; the shelf
      * barely moves at the others. */
-    crossfeed_response(&set, 44100, editor.curve, PLOT_POINTS);
+    editor.precut = crossfeed_response(&set, 44100, editor.curve, PLOT_POINTS);
 }
 
 enum {
@@ -177,7 +180,7 @@ static void draw_plot(const struct rv_gfx *g)
 
     /* Two pixels thick: the line as one fill, the shelf as a column per point
      * stretched to meet the one before. */
-    int direct_y = plot_y(direct_tenths(value(PARAM_DIRECT)));
+    int direct_y = plot_y(direct_tenths(value(PARAM_DIRECT)) + editor.precut);
     if (same_side == 0)
         rect(g, PLOT_LEFT, direct_y, PLOT_POINTS, 2, same_color);
     int previous = plot_y(editor.curve[0]);

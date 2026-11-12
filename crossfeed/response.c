@@ -2,7 +2,8 @@
 
 /* The Custom cross path's response for the editor's plot: the design of
  * design.c in double precision without a math library, then |H|^2 along a
- * log frequency axis. Only the editor module carries this. */
+ * log frequency axis, lowered by the precut. Only the editor module carries
+ * this. */
 
 #include "shared.h"
 
@@ -57,12 +58,29 @@ static double decibels(int tenths, unsigned int divisor)
     return exponential(2.302585092994045684 * tenths / divisor);
 }
 
-void crossfeed_response(const struct crossfeed_set *set, unsigned int rate, int16_t *tenths,
-                        unsigned int points)
+/* The precut design.c applies: Auto is the smallest half-decibel step that
+ * keeps direct + cross at or below 1. */
+static int precut_applied(const struct crossfeed_set *set)
 {
+    if (set->precut_tenths != CROSSFEED_PRECUT_AUTO)
+        return set->precut_tenths;
+    double sum = decibels(set->direct_tenths, 200) + decibels(set->cross_tenths, 200);
+    if (sum <= 1.0)
+        return 0;
+    double half_steps = logarithm(sum) * 17.37177927613007; /* 40 / ln 10 */
+    int steps = (int)half_steps;
+    if (steps < half_steps)
+        steps++;
+    return -5 * steps;
+}
+
+int crossfeed_response(const struct crossfeed_set *set, unsigned int rate, int16_t *tenths,
+                       unsigned int points)
+{
+    int precut = precut_applied(set);
     /* A first-order high shelf lifting the cross gain to the attenuation, g
      * its half gain, the cutoff divided by g to sit at the -3 dB point. */
-    double scaler = decibels(set->cross_tenths, 200);
+    double scaler = decibels(set->cross_tenths + precut, 200);
     double g = decibels(set->hf_tenths - set->cross_tenths, 400);
     double s, c;
     sine_cosine(3.141592653589793238 * set->cutoff_hz / (g * rate), &s, &c);
@@ -79,4 +97,5 @@ void crossfeed_response(const struct crossfeed_set *set, unsigned int rate, int1
         tenths[i] = (int16_t)(db + (db < 0.0 ? -0.5 : 0.5));
         hz *= ratio;
     }
+    return precut;
 }

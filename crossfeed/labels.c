@@ -28,3 +28,8 @@ const char *const cutoff_labels[CUTOFF_LABELS] = {
     "500 Hz", "600 Hz", "700 Hz", "800 Hz", "900 Hz", "1000 Hz", "1100 Hz", "1200 Hz",
     "1300 Hz", "1400 Hz", "1500 Hz", "1600 Hz", "1700 Hz", "1800 Hz", "1900 Hz", "2000 Hz",
 };
+
+const char *const precut_labels[PRECUT_LABELS] = {
+    "Auto",    "0.0 dB",  "-0.5 dB", "-1.0 dB", "-1.5 dB", "-2.0 dB", "-2.5 dB",
+    "-3.0 dB", "-3.5 dB", "-4.0 dB", "-4.5 dB", "-5.0 dB", "-5.5 dB", "-6.0 dB",
+};

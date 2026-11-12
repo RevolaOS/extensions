@@ -12,7 +12,7 @@ Settings > Crossfeed chooses the mode:
 | Simple | Meier's circuit: each channel's filtered difference signal leaks into the other, with no settings |
 | Custom | each channel reaches the other after about 300 µs through a high shelf, and the direct path is turned down; four values below |
 
-Edit Crossfeed, a row that shows while Custom is chosen, opens a plot of what each ear hears: a flat line for the ear's own channel at Direct, and the other channel's shelf, at Cross in the bass and falling to Highs above the Cutoff. The four values sit in a row under the plot: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once, and the values keep their settings when the mode changes and across restarts.
+Edit Crossfeed, a row that shows while Custom is chosen, opens a plot of what each ear hears: a flat line for the ear's own channel at Direct, and the other channel's shelf, at Cross in the bass and falling to Highs above the Cutoff. The five values sit in a row under the plot: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once, and the values keep their settings when the mode changes and across restarts.
 
 | Value | Range | Default |
 |---|---|---|
@@ -20,8 +20,9 @@ Edit Crossfeed, a row that shows while Custom is chosen, opens a plot of what ea
 | Cross | -12.0 to -3.0 dB in 0.5 dB steps | -6.0 dB |
 | Highs | -24.0 to -6.0 dB in 0.5 dB steps | -16.0 dB |
 | Cutoff | 500 to 2000 Hz in 100 Hz steps | 700 Hz |
+| Precut | Auto, or 0.0 to -6.0 dB in 0.5 dB steps | Auto |
 
-Cross is the level of the other channel's low frequencies, Highs the level of its high frequencies, and Cutoff where the shelf between the two sits. Too high a Cross with Direct at 0 dB can clip loud mono passages; the output saturates rather than wraps.
+Cross is the level of the other channel's low frequencies, Highs the level of its high frequencies, and Cutoff where the shelf between the two sits. A centred passage reaches each ear through both paths, so below the Cutoff it plays at Direct plus Cross, about +2.5 dB at the defaults, and a loud one would clip. Precut lowers both paths by the same amount: Auto picks the smallest half-decibel step that keeps Direct plus Cross at or below 0 dB, so nothing clips; a fixed value sets the level by hand, and 0.0 dB is Rockbox's behaviour, where the output saturates rather than wraps. The plot shows both curves with the precut applied.
 
 Both modes follow the output sample rate, 8 to 48 kHz. 16-bit stereo only, which is everything the iPod plays.
 

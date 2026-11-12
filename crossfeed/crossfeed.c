@@ -85,7 +85,7 @@ static void take(uint32_t rate)
     if (playing.mode == CROSSFEED_CUSTOM) {
         struct crossfeed_custom custom;
         crossfeed_design(&custom, rate, playing.direct_tenths, playing.cross_tenths,
-                         playing.hf_tenths, playing.cutoff_hz);
+                         playing.hf_tenths, playing.cutoff_hz, playing.precut_tenths);
         gain = custom.gain;
         memcpy(coefs, custom.coefs, sizeof coefs);
     } else if (playing.mode == CROSSFEED_SIMPLE) {

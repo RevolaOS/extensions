@@ -10,5 +10,6 @@ extern const char *const direct_labels[DIRECT_LABELS];
 extern const char *const cross_labels[CROSS_LABELS];
 extern const char *const hf_labels[HF_LABELS];
 extern const char *const cutoff_labels[CUTOFF_LABELS];
+extern const char *const precut_labels[PRECUT_LABELS];
 
 #endif

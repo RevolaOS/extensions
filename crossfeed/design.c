@@ -84,12 +84,30 @@ static void sine_cosine(uint32_t x, int32_t *sine, int32_t *cosine)
 }
 
 void crossfeed_design(struct crossfeed_custom *out, unsigned int rate, int direct_tenths,
-                      int cross_tenths, int hf_tenths, unsigned int cutoff_hz)
+                      int cross_tenths, int hf_tenths, unsigned int cutoff_hz,
+                      int precut_tenths)
 {
     /* All gains come in steps of half a decibel, so the quarter-decibel table
      * holds every gain and every half gain used here. */
     uint32_t scaler = gain_quarter_db(cross_tenths * 2 / 5);
     uint32_t direct = gain_quarter_db(direct_tenths * 2 / 5);
+
+    /* The precut lowers both paths. A centred bass passage meets direct + cross,
+     * the largest gain the two paths sum to; Auto takes the smallest
+     * half-decibel step that keeps it at or below 1, so the output never
+     * exceeds its input. The sum is at most 2 and the product of two s3.28
+     * values compares against 1 as s6.56. */
+    int precut_quarters = precut_tenths * 2 / 5;
+    if (precut_tenths == CROSSFEED_PRECUT_AUTO) {
+        int32_t sum = (int32_t)(direct + scaler);
+        precut_quarters = 0;
+        while (mul((int32_t)gain_quarter_db(precut_quarters), sum) > (int64_t)1 << (2 * GAIN_SHIFT))
+            precut_quarters -= 2;
+    }
+    uint32_t precut = gain_quarter_db(precut_quarters);
+    scaler = (uint32_t)(mul((int32_t)scaler, (int32_t)precut) >> GAIN_SHIFT);
+    direct = (uint32_t)(mul((int32_t)direct, (int32_t)precut) >> GAIN_SHIFT);
+    out->precut_tenths = (int16_t)(precut_quarters * 5 / 2);
     /* The shelf lifts the cross gain to the attenuation at high frequencies;
      * g is the square root of that gain. The cutoff is divided by g to sit at
      * the -3 dB point. */

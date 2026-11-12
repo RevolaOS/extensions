@@ -25,6 +25,7 @@ static const struct rv_setting settings[] = {
     RV_SETTING_INT(KEY_CROSS, NULL, CROSS_DEFAULT, 0, CROSS_LABELS - 1),
     RV_SETTING_INT(KEY_HF, NULL, HF_DEFAULT, 0, HF_LABELS - 1),
     RV_SETTING_INT(KEY_CUTOFF, NULL, CUTOFF_DEFAULT, 0, CUTOFF_LABELS - 1),
+    RV_SETTING_INT(KEY_PRECUT, NULL, PRECUT_DEFAULT, 0, PRECUT_LABELS - 1),
 };
 
 /* Leaves what the settings say for the pump task. */
@@ -36,6 +37,7 @@ static void publish(void)
         .cross_tenths = (int16_t)cross_tenths(api->setting_int(self, KEY_CROSS)),
         .hf_tenths = (int16_t)hf_tenths(api->setting_int(self, KEY_HF)),
         .cutoff_hz = (uint16_t)cutoff_hz(api->setting_int(self, KEY_CUTOFF)),
+        .precut_tenths = (int16_t)precut_tenths(api->setting_int(self, KEY_PRECUT)),
     };
     crossfeed_publish(&set);
 }
