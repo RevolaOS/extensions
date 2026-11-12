@@ -24,6 +24,7 @@ They need Python 3 and a C compiler with AddressSanitizer and UndefinedBehaviorS
 
 | Extension | Host tests cover |
 |---|---|
+| Chapter Marks | the crowding rule |
 | Chapters | row, seek and play contracts |
 | Compressor, Crossfeed, Channels | an integer model of Rockbox's loops |
 | Equalizer | the filter engine |

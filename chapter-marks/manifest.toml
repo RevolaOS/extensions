@@ -1,0 +1,13 @@
+id = "chapter-marks"
+name = "Chapter Marks"
+description = "Leave the chapter marks off the Now Playing bar when there are too many to tell apart."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+api = "1.44"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
