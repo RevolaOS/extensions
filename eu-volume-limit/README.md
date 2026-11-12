@@ -18,7 +18,7 @@ Disabled, Apple's behaviour returns at once, except the startup clamp, which ret
 
 | | |
 |---|---|
-| Default | on |
+| Default | off |
 | Memory | image only |
 | Settings | none; Apple stores the switch |
 | Minimum SDK | 1.30 |

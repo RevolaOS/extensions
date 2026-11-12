@@ -6,7 +6,6 @@ author = "RevolaOS"
 note = "Ported from Rockbox"
 license = "GPL-3.0-only"
 api = "1.42"
-enabled = false
 stability = "beta"
 
 [[module]]

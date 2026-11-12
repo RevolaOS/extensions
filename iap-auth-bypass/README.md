@@ -10,7 +10,7 @@ The handshake, the verification gate and the hook calling conventions are in the
 
 | | |
 |---|---|
-| Default | on |
+| Default | off |
 | Memory | image only |
 | Settings | none |
 | Minimum SDK | 1.29 |

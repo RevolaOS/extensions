@@ -12,7 +12,7 @@ An extension's README says what the extension does for the person using it, with
 
 | | |
 |---|---|
-| Default | on or off after install |
+| Default | on or off after install, as the core's `loader/bundled.def` lists it |
 | Memory | what it holds beyond its image while idle |
 | Settings | what it stores, or none |
 | Minimum SDK | the `api` in its manifest |

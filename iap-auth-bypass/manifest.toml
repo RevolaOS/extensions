@@ -6,7 +6,6 @@ author = "RevolaOS"
 note = "Adapted from RepriseOS"
 license = "GPL-3.0-only"
 api = "1.29"
-enabled = true
 stability = "beta"
 
 [[module]]

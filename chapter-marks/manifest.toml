@@ -5,7 +5,6 @@ version = "0.1.0"
 author = "RevolaOS"
 license = "GPL-3.0-only"
 api = "1.44"
-enabled = true
 stability = "beta"
 
 [[module]]
