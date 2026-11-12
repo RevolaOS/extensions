@@ -24,8 +24,8 @@ Edit Crossfeed, a row that shows while Custom is chosen, opens a plot of what ea
 
 Cross is the level of the other channel's low frequencies, Highs the level of its high frequencies, and Cutoff where the shelf between the two sits. A centred passage reaches each ear through both paths, so below the Cutoff it plays at Direct plus Cross, about +2.5 dB at the defaults, and a loud one would clip. Precut lowers both paths by the same amount: Auto picks the smallest half-decibel step that keeps Direct plus Cross at or below 0 dB, so nothing clips; a fixed value sets the level by hand, and 0.0 dB is Rockbox's behaviour, where the output saturates rather than wraps. The plot shows both curves with the precut applied.
 
-Both modes follow the output sample rate, 8 to 48 kHz. 16-bit stereo only, which is everything the iPod plays.
+Both modes follow the output sample rate, 8 to 48 kHz. 16-bit stereo only, which is everything the iPod plays. The output-stage effects run in a fixed order: Crossfeed, Channels, Compressor.
 
 Disabled by default. Enabling it adds the Crossfeed row after Sound Check; with the mode Off it costs its image and nothing per sample.
 
-Build with `make -C crossfeed SDK=/path/to/revola-sdk` from the extensions repository, using SDK API 1.39 or later; `make check SDK=...` runs the host tests against an integer model of Rockbox's loops. The Settings icon `assets/settings-crossfeed.png` is drawn by `assets/render.py` with ImageMagick; `--check` compares the committed file with a fresh render. Copy `crossfeed/build/crossfeed.rvx` to `/Revola/Extensions/crossfeed.rvx` on an iPod running the matching core.
+Build with `make -C crossfeed SDK=/path/to/revola-sdk` from the extensions repository, using SDK API 1.40 or later; `make check SDK=...` runs the host tests against an integer model of Rockbox's loops. The Settings icon `assets/settings-crossfeed.png` is drawn by `assets/render.py` with ImageMagick; `--check` compares the committed file with a fresh render. Copy `crossfeed/build/crossfeed.rvx` to `/Revola/Extensions/crossfeed.rvx` on an iPod running the matching core.

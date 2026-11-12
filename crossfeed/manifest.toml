@@ -5,7 +5,7 @@ version = "0.1.0"
 author = "RevolaOS"
 note = "Ported from Rockbox"
 license = "GPL-3.0-only"
-api = "1.39"
+api = "1.40"
 enabled = false
 stability = "beta"
 

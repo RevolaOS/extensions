@@ -67,7 +67,7 @@ static uint32_t on_output(uint32_t samples, uint32_t frames, uint32_t context,
 }
 
 static const struct rv_hook hooks[] = {
-    RV_HOOK_FILTER(RV_SITE_AudioOutputQueue_Get_call, on_output),
+    RV_HOOK_FILTER_AT(RV_SITE_AudioOutputQueue_Get_call, on_output, RV_AUDIO_STAGE_CROSSFEED),
 };
 
 static void open_editor(const struct rv_context *ctx)

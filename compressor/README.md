@@ -17,8 +17,8 @@ Settings > Compressor opens a plot of the output level for every input level: a 
 
 The gain follows the average of the two channels with the treble weighted up, as Rockbox's sidechain does, and applies to the samples of 3 ms earlier, so a limiter can pull a peak down before it plays. With Makeup on, a loud passage can reach full scale; the output saturates rather than wraps.
 
-It follows the output sample rate, 8 to 48 kHz. 16-bit stereo only, which is everything the iPod plays. With Crossfeed also enabled, the two run in the order the extensions loaded.
+It follows the output sample rate, 8 to 48 kHz. 16-bit stereo only, which is everything the iPod plays. The output-stage effects run in a fixed order: Crossfeed, Channels, Compressor.
 
 Disabled by default. Enabling it adds the Compressor row after Sound Check; with Threshold at Off it costs its image and nothing per sample.
 
-Build with `make -C compressor SDK=/path/to/revola-sdk` from the extensions repository, using SDK API 1.39 or later; `make check SDK=...` runs the host tests against an integer model of Rockbox's loop. The Settings icon `assets/settings-compressor.png` is drawn by `assets/render.py` with ImageMagick; `--check` compares the committed file with a fresh render. Copy `compressor/build/compressor.rvx` to `/Revola/Extensions/compressor.rvx` on an iPod running the matching core.
+Build with `make -C compressor SDK=/path/to/revola-sdk` from the extensions repository, using SDK API 1.40 or later; `make check SDK=...` runs the host tests against an integer model of Rockbox's loop. The Settings icon `assets/settings-compressor.png` is drawn by `assets/render.py` with ImageMagick; `--check` compares the committed file with a fresh render. Copy `compressor/build/compressor.rvx` to `/Revola/Extensions/compressor.rvx` on an iPod running the matching core.
