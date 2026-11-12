@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Run the host tests with a staged SDK: python3 tests/run.py SDK."""
 
+import copy
 import ctypes
 import math
 import subprocess
 import sys
 import tempfile
+from itertools import pairwise
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
@@ -163,7 +165,8 @@ def label_tests(dll):
     assert labels(CROSS, 19) == decibels(-120, 19)
     assert labels(HF, 37) == decibels(-240, 37)
     assert labels(CUTOFF, 16) == [
-        f"{hz} Hz" if hz < 1000 else f"{hz / 1000:g}k Hz" for hz in range(500, 2001, 100)
+        f"{hz} Hz" if hz < 1000 else f"{hz / 1000:g}k Hz"
+        for hz in range(500, 2001, 100)
     ]
     assert labels(DIRECT, 13)[9] == "-1.5 dB"
     assert labels(CROSS, 19)[12] == "-6.0 dB"
@@ -251,7 +254,10 @@ def response_tests(dll):
 
     for hz in (50, 1000, 10000):
         count = 20000
-        frames = [(int(20000 * math.sin(2 * math.pi * hz * i / 44100)), 0) for i in range(count)]
+        frames = [
+            (int(20000 * math.sin(2 * math.pi * hz * i / 44100)), 0)
+            for i in range(count)
+        ]
         out = Reference(44100).simple(frames)[count // 2 :]
         h = simple_response(hz)
         for amplitude, expected in (
@@ -343,6 +349,19 @@ def noise(count, seed, panned):
     return frames
 
 
+FADE = 128
+
+
+def faded(old, new):
+    """What rv_fade plays after a take: old blended into new over the first FADE
+    frames at weights 1 to FADE, floor-shifted as C's arithmetic shift does, then new."""
+    out = []
+    for i, (a, b) in enumerate(zip(old, new)):
+        weight = min(i + 1, FADE)
+        out.append(tuple((x * (FADE - weight) + y * weight) >> 7 for x, y in zip(a, b)))
+    return out
+
+
 def process_tests(dll):
     publish = dll.crossfeed_publish
     publish.argtypes = [ctypes.POINTER(Set)]
@@ -356,79 +375,146 @@ def process_tests(dll):
     design.restype = None
     count = 512
 
-    def run(frames, rate):
-        buffer = (ctypes.c_int16 * (2 * count))(*[s for frame in frames for s in frame])
-        process(buffer, count, rate)
-        return [(buffer[2 * i], buffer[2 * i + 1]) for i in range(count)]
+    def designed(rate, bank):
+        out = Custom()
+        design(out, rate, bank.direct, bank.cross, bank.hf, bank.cutoff, bank.precut)
+        return out.gain, list(out.coefs)
+
+    class Player:
+        """One instance as the engine keeps it: a set at a rate over a Reference."""
+
+        def __init__(self, rate, chosen):
+            self.rate, self.chosen, self.mode = rate, chosen, chosen.mode
+            self.reference = Reference(rate)
+            self.custom = designed(rate, chosen) if chosen.mode == 2 else None
+
+        def play(self, frames):
+            if self.mode == 1:
+                return self.reference.simple(frames)
+            if self.mode == 2:
+                return self.reference.custom(frames, *self.custom)
+            return list(frames)
+
+    # What plays and, after a take at the same rate, what fades out.
+    players = {"new": Player(44100, Set(mode=0)), "old": None}
+
+    def switch(chosen, rate=44100):
+        """Publishes a set. At the same rate the engine fades from what played
+        and a same-mode set keeps the history; a new rate starts over."""
+        publish(chosen)
+        old, new = players["new"], Player(rate, chosen)
+        if rate == old.rate and chosen.mode == old.mode:
+            new.reference = copy.deepcopy(old.reference)
+        players["new"], players["old"] = new, old if rate == old.rate else None
+
+    def expected(frames):
+        new = players["new"].play(frames)
+        old, players["old"] = players["old"], None
+        return new if old is None else faded(old.play(frames), new)
+
+    def run(frames, rate, *splits):
+        """Processes the frames in one buffer, or in buffers cut at the splits.
+        A rate the engine has not seen starts its state over without a fade."""
+        if rate != players["new"].rate:
+            players["new"] = Player(rate, players["new"].chosen)
+            players["old"] = None
+        buffer = (ctypes.c_int16 * (2 * len(frames)))(
+            *[s for frame in frames for s in frame]
+        )
+        edges = [0, *splits, len(frames)]
+        for first, last in pairwise(edges):
+            process(
+                ctypes.cast(ctypes.byref(buffer, 4 * first), process.argtypes[0]),
+                last - first,
+                rate,
+            )
+        return [(buffer[2 * i], buffer[2 * i + 1]) for i in range(len(frames))]
+
+    def play(frames, rate, *splits):
+        """Runs the frames and checks them against the model, returning them."""
+        got = run(frames, rate, *splits)
+        assert got == expected(frames), (rate, splits)
+        return got
 
     def interrupts(dll):
         dll.test_irq_calls.restype = ctypes.c_uint32
         return dll.test_irq_calls()
 
     # Off leaves the stream alone.
-    publish(Set(mode=0))
+    switch(Set(mode=0))
     frames = noise(count, 1, True)
-    assert run(frames, 44100) == frames
+    assert play(frames, 44100) == frames
     assert interrupts(dll) == 2
 
     # Simple, bit for bit against the reference, history carried across
     # blocks, restarted by a rate change; mono passes through unchanged.
-    publish(Set(mode=1))
+    switch(Set(mode=1))
     for rate in (44100, 48000, 8000):
-        reference = Reference(rate)
         for block in range(3):
             frames = noise(count, block + rate, True)
-            assert run(frames, rate) == reference.simple(frames), (rate, block)
+            play(frames, rate)
     frames = noise(count, 7, False)
-    assert run(frames, 44100) == frames
+    assert play(frames, 44100) == frames
 
     # Custom at every rate, the delay line and shelf history carried across
-    # blocks; the panned impulse reaches the other channel delayed.
+    # blocks; the panned impulse reaches the other channel delayed, under the
+    # fade from what played before.
     def custom_set(direct, cross, hf, cutoff, precut=0):
         return Set(
             mode=2, direct=direct, cross=cross, hf=hf, cutoff=cutoff, precut=precut
         )
 
-    def designed(rate, bank):
-        out = Custom()
-        design(out, rate, bank.direct, bank.cross, bank.hf, bank.cutoff, bank.precut)
-        return out.gain, list(out.coefs)
-
     for rate in RATES:
         bank = custom_set(-15, -60, -160, 700)
-        publish(bank)
-        gain, coefs = designed(rate, bank)
-        reference = Reference(rate)
+        switch(bank, rate)
         for block in range(3):
             frames = noise(count, block + rate, True)
-            got = run(frames, rate)
-            assert got == reference.custom(frames, gain, coefs), (rate, block)
+            play(frames, rate)
             if block == 0:
+                alone = Player(rate, bank).play(frames)
                 delay = 300 * rate // 1000000
-                assert all(right == 0 for _, right in got[:delay])
-                assert got[delay][1] != 0
+                assert all(right == 0 for _, right in alone[:delay])
+                assert alone[delay][1] != 0
 
-    # New Custom values keep the delay line and shelf history; a change of
-    # mode starts them over.
-    publish(Set(mode=1))
-    run(noise(count, 9, True), 44100)
+    # New Custom values keep the delay line and shelf history, and fade in from
+    # the old ones; a change of mode fades from the old mode into fresh state.
+    switch(Set(mode=1))
+    frames = noise(count, 9, True)
+    play(frames, 44100)
     first, second = custom_set(-15, -60, -160, 700), custom_set(0, -30, -60, 500)
-    publish(first)
-    reference = Reference(44100)
+    switch(first)
     frames = noise(count, 10, True)
-    assert run(frames, 44100) == reference.custom(frames, *designed(44100, first))
-    publish(second)
+    play(frames, 44100)
+    switch(second)
     frames = noise(count, 11, True)
-    assert run(frames, 44100) == reference.custom(frames, *designed(44100, second))
-    publish(Set(mode=1))
+    play(frames, 44100)
+    switch(Set(mode=1))
     frames = noise(count, 12, True)
-    assert run(frames, 44100) == Reference(44100).simple(frames)
+    play(frames, 44100)
+
+    # A fade spans buffer edges and ends after FADE frames whatever their size;
+    # a set taken during a fade restarts the fade from the set that plays; a
+    # rate change ends a fade and starts the state over.
+    switch(first)
+    frames = noise(count, 15, True)
+    play(frames, 44100, 17, 100)
+    switch(second)
+    frames = noise(64, 16, True)
+    play(frames, 44100)
+    switch(Set(mode=1))
+    frames = noise(count, 17, True)
+    play(frames, 44100)
+    switch(first)
+    frames = noise(64, 18, True)
+    play(frames, 44100)
+    frames = noise(count, 19, True)
+    play(frames, 48000)
 
     # Correlated full-scale input saturates instead of wrapping in Custom
     # without a precut.
-    publish(custom_set(0, -30, -60, 500))
+    switch(custom_set(0, -30, -60, 500))
     loud = [(32767, 32767)] * count
-    got = run(loud, 44100)
+    got = play(loud, 44100)
     assert got[-1] == (32767, 32767), got[-1]
     assert all(-32768 <= s <= 32767 for frame in got for s in frame)
 
@@ -444,19 +530,20 @@ def process_tests(dll):
             )
         ]
 
-    publish(custom_set(-15, -60, -160, 700))
-    got = run(tone(), 44100)
+    switch(custom_set(-15, -60, -160, 700))
+    got = play(tone(), 44100)
     assert sum(s in (32767, -32768) for frame in got for s in frame) > count // 4
     bank = custom_set(-15, -60, -160, 700, AUTO)
-    publish(bank)
-    run(tone(), 44100)  # the shelf and delay settle
-    got = run(tone(), 44100)
+    switch(bank)
+    play(tone(), 44100)  # the shelf and delay settle
+    got = play(tone(), 44100)
     assert all(abs(s) < 32767 for frame in got for s in frame)
-    publish(Set(mode=1))
-    run(noise(count, 13, True), 44100)
-    publish(bank)
+    switch(Set(mode=1))
+    frames = noise(count, 13, True)
+    play(frames, 44100)
+    switch(bank)
     frames = noise(count, 14, True)
-    assert run(frames, 44100) == Reference(44100).custom(frames, *designed(44100, bank))
+    play(frames, 44100)
 
 
 sdk = Path(sys.argv[1]).resolve()

@@ -19,9 +19,10 @@
  * turned down.
  *
  * The UI task leaves a set with interrupts masked and moves the generation;
- * the pump task takes it over when it sees the generation move. Only the pump
- * task touches what plays. Samples are S16 raised by SAMPLE_SHIFT bits, as
- * Rockbox's DSP keeps them, so the Q31 coefficients apply unchanged. */
+ * the pump task takes it over when it sees the generation move and fades the
+ * state that played into the new one. Only the pump task touches what plays.
+ * Samples are S16 raised by SAMPLE_SHIFT bits, as Rockbox's DSP keeps them, so
+ * the Q31 coefficients apply unchanged. */
 
 #include "crossfeed.h"
 #include "rv_audio.h"
@@ -39,12 +40,16 @@ static struct crossfeed_set next;
 static struct rv_handoff handoff;
 
 /* Pump task only. */
-static struct crossfeed_set playing;
+struct crossfeed_state {
+    struct crossfeed_set set;
+    int32_t vcl, vcr, vdiff, coef1, coef2;
+    int32_t gain, coefs[3];
+    int32_t history[4], delay[DELAY_ENTRIES];
+    uint32_t delay_index, delay_length;
+};
+static struct crossfeed_state playing, fading;
+static struct rv_fade fade;
 static uint32_t rate_playing;
-static int32_t vcl, vcr, vdiff, coef1, coef2;
-static int32_t gain, coefs[3];
-static int32_t history[4], delay[DELAY_ENTRIES];
-static uint32_t delay_index, delay_length;
 
 void crossfeed_start(const struct rv_api *core)
 {
@@ -62,38 +67,47 @@ static inline int16_t output(int32_t sample)
     return rv_saturate16((sample + (1 << (SAMPLE_SHIFT - 1))) >> SAMPLE_SHIFT);
 }
 
-/* Takes over the set the UI task left. A set left meanwhile moves the
- * generation again, and the next call takes that one. The histories start over
- * when the mode or the rate changes, as in Rockbox; new Custom values keep them. */
+/* Takes over the set the UI task left, fading from what played when the rate
+ * is the same. A set left meanwhile moves the generation again, and the next
+ * call takes that one. The histories start over when the mode or the rate
+ * changes, as in Rockbox; new Custom values keep them. A rate change comes with
+ * a track, so it ends a fade instead of starting one. */
 static void take(uint32_t rate)
 {
-    unsigned int was = playing.mode;
-    rv_handoff_take(&handoff, &playing, &next, sizeof playing);
-    if (playing.mode == CROSSFEED_CUSTOM) {
+    unsigned int was = playing.set.mode, same_rate = rate == rate_playing;
+    if (same_rate)
+        fading = playing;
+    rv_handoff_take(&handoff, &playing.set, &next, sizeof playing.set);
+    const struct crossfeed_set *set = &playing.set;
+    if (set->mode == CROSSFEED_CUSTOM) {
         struct crossfeed_custom custom;
-        crossfeed_design(&custom, rate, playing.direct_tenths, playing.cross_tenths,
-                         playing.hf_tenths, playing.cutoff_hz, playing.precut_tenths);
-        gain = custom.gain;
-        memcpy(coefs, custom.coefs, sizeof coefs);
-    } else if (playing.mode == CROSSFEED_SIMPLE) {
+        crossfeed_design(&custom, rate, set->direct_tenths, set->cross_tenths, set->hf_tenths,
+                         set->cutoff_hz, set->precut_tenths);
+        playing.gain = custom.gain;
+        memcpy(playing.coefs, custom.coefs, sizeof playing.coefs);
+    } else if (set->mode == CROSSFEED_SIMPLE) {
         /* 1 / (F.Rforward.C) and 1 / (F.Rcross.C). */
-        coef1 = (int32_t)crossfeed_ratio_q31(2128, rate);
-        coef2 = (int32_t)crossfeed_ratio_q31(1000, rate);
+        playing.coef1 = (int32_t)crossfeed_ratio_q31(2128, rate);
+        playing.coef2 = (int32_t)crossfeed_ratio_q31(1000, rate);
     }
-    if (playing.mode != was || rate != rate_playing) {
-        vcl = vcr = vdiff = 0;
-        memset(history, 0, sizeof history);
-        memset(delay, 0, sizeof delay);
-        delay_index = 0;
-        delay_length = 2 * (300 * rate / 1000000);
+    if (set->mode != was || !same_rate) {
+        playing.vcl = playing.vcr = playing.vdiff = 0;
+        memset(playing.history, 0, sizeof playing.history);
+        memset(playing.delay, 0, sizeof playing.delay);
+        playing.delay_index = 0;
+        playing.delay_length = 2 * (300 * rate / 1000000);
     }
+    if (same_rate)
+        rv_fade_start(&fade, 0);
+    else
+        fade.remaining = 0;
     rate_playing = rate;
 }
 
-static void simple(int16_t *samples, uint32_t frames)
+static void simple(struct crossfeed_state *state, int16_t *samples, uint32_t frames)
 {
-    int32_t l = vcl, r = vcr, diff = vdiff;
-    const int32_t c1 = coef1, c2 = coef2;
+    int32_t l = state->vcl, r = state->vcr, diff = state->vdiff;
+    const int32_t c1 = state->coef1, c2 = state->coef2;
     for (int16_t *end = samples + frames * 2; samples < end; samples += 2) {
         int32_t lout = (int32_t)samples[0] * (1 << SAMPLE_SHIFT) + l;
         int32_t rout = (int32_t)samples[1] * (1 << SAMPLE_SHIFT) + r;
@@ -105,16 +119,18 @@ static void simple(int16_t *samples, uint32_t frames)
         r -= rv_fracmul(r, c1) - common;
         diff = lout - rout;
     }
-    vcl = l;
-    vcr = r;
-    vdiff = diff;
+    state->vcl = l;
+    state->vcr = r;
+    state->vdiff = diff;
 }
 
-static void custom(int16_t *samples, uint32_t frames)
+static void custom(struct crossfeed_state *state, int16_t *samples, uint32_t frames)
 {
-    const int32_t g = gain, c0 = coefs[0], c1 = coefs[1], c2 = coefs[2];
-    int32_t *di = delay + delay_index;
-    const int32_t *end = delay + delay_length;
+    const int32_t g = state->gain, c0 = state->coefs[0], c1 = state->coefs[1],
+                  c2 = state->coefs[2];
+    int32_t *history = state->history, *delay = state->delay;
+    int32_t *di = delay + state->delay_index;
+    const int32_t *end = delay + state->delay_length;
     for (int16_t *last = samples + frames * 2; samples < last; samples += 2) {
         int32_t left = (int32_t)samples[0] * (1 << SAMPLE_SHIFT);
         int32_t right = (int32_t)samples[1] * (1 << SAMPLE_SHIFT);
@@ -137,21 +153,26 @@ static void custom(int16_t *samples, uint32_t frames)
         if (di >= end)
             di = delay;
     }
-    delay_index = (uint32_t)(di - delay);
+    state->delay_index = (uint32_t)(di - delay);
+}
+
+static void run(void *state, int16_t *samples, uint32_t frames)
+{
+    switch (((struct crossfeed_state *)state)->set.mode) {
+    case CROSSFEED_SIMPLE:
+        simple(state, samples, frames);
+        break;
+    case CROSSFEED_CUSTOM:
+        custom(state, samples, frames);
+        break;
+    default:
+        break;
+    }
 }
 
 void crossfeed_process(int16_t *samples, uint32_t frames, uint32_t rate)
 {
     if (rv_handoff_pending(&handoff) || rate != rate_playing)
         take(rate);
-    switch (playing.mode) {
-    case CROSSFEED_SIMPLE:
-        simple(samples, frames);
-        break;
-    case CROSSFEED_CUSTOM:
-        custom(samples, frames);
-        break;
-    default:
-        break;
-    }
+    rv_fade_run(&fade, run, &playing, &fading, samples, frames);
 }
