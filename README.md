@@ -33,6 +33,10 @@ make -C <directory> SDK=/path/to/revola-sdk
 | [SDK](https://github.com/RevolaOS/revola/tree/main/docs/sdk) | Writing an extension |
 | [STYLE.md](STYLE.md) | Principles and rules for every file |
 
+## Development
+
+Large language models are used for much of the coding on RevolaOS. Their output is checked in the emulator, its memory use comes from the heap profile, and every release is tested on an iPod before it ships. Contributions written with the same tools are welcome and tested in the same way.
+
 ## License
 
 GPL-3.0-only. See COPYING and NOTICE. Third-party extensions must use a GPL-compatible license because they run in the same address space as the core.
