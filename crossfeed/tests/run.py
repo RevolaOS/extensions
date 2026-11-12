@@ -146,22 +146,30 @@ def design_tests(dll):
 
 
 def label_tests(dll):
-    def labels(name, count):
-        return [s.decode() for s in (ctypes.c_char_p * count).in_dll(dll, name)]
+    label = dll.crossfeed_label
+    label.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
+    label.restype = ctypes.c_char_p
+    MODE, PRECUT, DIRECT, CROSS, HF, CUTOFF = range(6)
+
+    def labels(parameter, count):
+        out = ctypes.create_string_buffer(16)
+        return [label(parameter, i, out).decode() for i in range(count)]
 
     def decibels(first, count):
         return [f"{(first + 5 * i) / 10:.1f} dB" for i in range(count)]
 
-    assert labels("mode_labels", 3) == ["Off", "Simple", "Custom"]
-    assert labels("direct_labels", 13) == decibels(-60, 13)
-    assert labels("cross_labels", 19) == decibels(-120, 19)
-    assert labels("hf_labels", 37) == decibels(-240, 37)
-    assert labels("cutoff_labels", 16) == [f"{500 + 100 * i} Hz" for i in range(16)]
-    assert labels("direct_labels", 13)[9] == "-1.5 dB"
-    assert labels("cross_labels", 19)[12] == "-6.0 dB"
-    assert labels("hf_labels", 37)[16] == "-16.0 dB"
-    assert labels("cutoff_labels", 16)[2] == "700 Hz"
-    assert labels("precut_labels", 14) == ["Auto"] + decibels(0, 1) + [
+    assert labels(MODE, 3) == ["Off", "Simple", "Custom"]
+    assert labels(DIRECT, 13) == decibels(-60, 13)
+    assert labels(CROSS, 19) == decibels(-120, 19)
+    assert labels(HF, 37) == decibels(-240, 37)
+    assert labels(CUTOFF, 16) == [
+        f"{hz} Hz" if hz < 1000 else f"{hz / 1000:g}k Hz" for hz in range(500, 2001, 100)
+    ]
+    assert labels(DIRECT, 13)[9] == "-1.5 dB"
+    assert labels(CROSS, 19)[12] == "-6.0 dB"
+    assert labels(HF, 37)[16] == "-16.0 dB"
+    assert labels(CUTOFF, 16)[2] == "700 Hz"
+    assert labels(PRECUT, 14) == ["Auto"] + decibels(0, 1) + [
         f"{-(i + 1) / 2:.1f} dB" for i in range(12)
     ]
 
@@ -454,9 +462,9 @@ def process_tests(dll):
 sdk = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="crossfeed-tests-") as name:
     work = Path(name)
-    sources = [root / "host.c"] + [
+    sources = [root / "host.c", sdk / "rv_libc.c", sdk / "rv_math.c"] + [
         root.parent / name
-        for name in ("crossfeed.c", "design.c", "labels.c", "response.c")
+        for name in ("crossfeed.c", "design.c", "labels.c", "modes.c", "response.c")
     ]
     dll = build(work, "crossfeed.so", sources)
     design_tests(dll)

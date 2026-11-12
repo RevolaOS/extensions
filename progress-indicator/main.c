@@ -3,6 +3,7 @@
 #include "bitmap.h"
 #include "osos-2.0.5.h"
 #include "rv_api.h"
+#include "rv_media.h"
 #include "rv_sites.h"
 #include "rv_ui.h"
 #include <stddef.h>
@@ -26,34 +27,23 @@ static void *icon_of(void *model, unsigned selected)
                                       : MediaListModel_status_icon);
 }
 
-static uint32_t item_value(struct MediaItem *item, uint32_t method)
-{
-    typedef uint32_t (*getter)(struct MediaItem *);
-    return RV_FIELD(RV_FIELD(item, 0, void *), method, getter)(item);
-}
-
+/* Player locked. */
 static int in_progress(struct MediaItem *item, void *player)
 {
-    if (!RV_FIELD(item, MediaItem_record, void *) || !MediaItem_IsValid(item) ||
-        !item_value(item, MediaItem_remembers_position_method))
+    if (!rv_item_valid(item) || !rv_item_value(item, MediaItem_remembers_position_method))
         return 0;
-    uint32_t start = item_value(item, MediaItem_start_time_method);
-    uint32_t end = item_value(item, MediaItem_stop_time_method);
+    uint32_t start = rv_item_value(item, MediaItem_start_time_method);
+    uint32_t end = rv_item_value(item, MediaItem_stop_time_method);
     if (!end)
-        end = item_value(item, MediaItem_duration_method);
+        end = rv_item_value(item, MediaItem_duration_method);
     if (end <= start)
         return 0;
-    uint32_t position = item_value(item, MediaItem_bookmark_method);
+    uint32_t position = rv_item_value(item, MediaItem_bookmark_method);
     if (RV_FIELD(player, MediaPlayer_current_track, void *)) {
         uint32_t storage[MediaItem_bytes / 4];
         struct MediaItem *current = (void *)storage;
-        MediaItem_InitFromRecord(current, NULL, 0);
-        MediaPlayer_GetCurrentItem(player, current);
-        if (MediaItem_IsValid(current) &&
-            RV_FIELD(current, MediaItem_record, void *) ==
-                RV_FIELD(item, MediaItem_record, void *) &&
-            RV_FIELD(current, MediaItem_generation, uint32_t) ==
-                RV_FIELD(item, MediaItem_generation, uint32_t))
+        rv_player_current(player, current);
+        if (MediaItem_IsValid(current) && rv_item_same(current, item))
             position = MediaPlayer_GetPosition(player);
         MediaItem_Destroy(current);
     }
@@ -107,11 +97,8 @@ static uint32_t property(uintptr_t model_address, uint32_t type, uint32_t proper
         return handled;
     uint32_t storage[MediaItem_bytes / 4];
     struct MediaItem *item = (void *)storage;
-    MediaItem_InitFromRecord(item, NULL, 0);
     Mutex_Lock((uint8_t *)player + MediaPlayer_mutex);
-    /* Native struct return places the output pointer before this. */
-    typedef void (*get_item)(struct MediaItem *, void *, uint32_t);
-    RV_FIELD(RV_FIELD(source, 0, void *), SongModel_get_item_method, get_item)(item, source, row);
+    rv_model_item(source, (int32_t)row, item);
     int partial = in_progress(item, player);
     int video = partial && MediaItem_HasKind8062(item);
     MediaItem_Destroy(item);

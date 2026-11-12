@@ -8,6 +8,7 @@
 #include "osos-2.0.5.h"
 #include "rv_api.h"
 #include "rv_libc.h"
+#include "rv_media.h"
 
 /* The native string the last title lives in, and the texts of a row without
  * one: "Chapter 4294967295" and a start of at most "1193:02:47". */
@@ -25,8 +26,7 @@ static struct MediaItem *media(const void *item)
 
 uint32_t chapters_count(const void *item)
 {
-    if (!item || !RV_FIELD(item, MediaItem_record, void *) || !MediaItem_IsValid(media(item)) ||
-        MediaItem_HasKind8062(media(item)))
+    if (!rv_item_valid(item) || MediaItem_HasKind8062(media(item)))
         return 0;
     uint32_t count = MediaItem_GetChapterCount(media(item));
     return count <= INT32_MAX ? count : 0;
@@ -61,15 +61,6 @@ const char *chapters_row(const void *item, uint32_t index, const char **start)
     return chapters.label;
 }
 
-/* A MediaItem is a non-owning view of a library record; the generation tells
- * a record reused after a library reload apart. */
-static int same_item(const void *a, const void *b)
-{
-    return RV_FIELD(a, MediaItem_record, void *) == RV_FIELD(b, MediaItem_record, void *) &&
-           RV_FIELD(a, MediaItem_generation, uint32_t) ==
-               RV_FIELD(b, MediaItem_generation, uint32_t);
-}
-
 /* Chapter `index`'s start in `item` into *ms; 0 when the chapter is gone or
  * starts at or past the end. */
 static int start_of(const void *item, uint32_t index, uint32_t *ms)
@@ -83,30 +74,26 @@ static int start_of(const void *item, uint32_t index, uint32_t *ms)
 
 uint32_t chapters_current(const void *item)
 {
-    void *player = MediaPlayer_GetInstance();
     uint32_t current[MediaItem_bytes / 4];
     int index = 0;
-    MediaItem_InitFromRecord(media(current), NULL, 0);
-    Mutex_Lock((uint8_t *)player + MediaPlayer_mutex);
-    MediaPlayer_GetCurrentItem(player, media(current));
-    if (chapters_count(current) && same_item(current, item))
+    void *player = rv_player_lock();
+    rv_player_current(player, media(current));
+    if (chapters_count(current) && rv_item_same(current, item))
         index = MediaItem_GetChapterIndexAt(media(current), MediaPlayer_GetPosition(player));
-    Mutex_Unlock((uint8_t *)player + MediaPlayer_mutex);
+    rv_player_unlock(player);
     MediaItem_Destroy(media(current));
     return index > 0 ? (uint32_t)index : 0;
 }
 
 void chapters_seek(const void *item, uint32_t index)
 {
-    void *player = MediaPlayer_GetInstance();
     uint32_t current[MediaItem_bytes / 4];
-    MediaItem_InitFromRecord(media(current), NULL, 0);
-    Mutex_Lock((uint8_t *)player + MediaPlayer_mutex);
-    MediaPlayer_GetCurrentItem(player, media(current));
     uint32_t ms;
-    if (same_item(current, item) && start_of(current, index, &ms))
+    void *player = rv_player_lock();
+    rv_player_current(player, media(current));
+    if (rv_item_same(current, item) && start_of(current, index, &ms))
         MediaPlayer_Seek(player, ms);
-    Mutex_Unlock((uint8_t *)player + MediaPlayer_mutex);
+    rv_player_unlock(player);
     MediaItem_Destroy(media(current));
 }
 
@@ -116,13 +103,9 @@ void chapters_play(void *list, int32_t row, const void *item, uint32_t index)
     if (row < 0 || !model)
         return;
     uint32_t selected[MediaItem_bytes / 4];
-    MediaItem_InitFromRecord(media(selected), NULL, 0);
-    /* Native struct return places the output pointer before this. */
-    typedef void (*get_item)(struct MediaItem *, void *, int32_t);
-    RV_FIELD(RV_FIELD(model, 0, void *), SongModel_get_item_method, get_item)(media(selected),
-                                                                              model, row);
+    rv_model_item(model, row, media(selected));
     uint32_t ms;
-    int ok = same_item(selected, item) && start_of(selected, index, &ms);
+    int ok = rv_item_same(selected, item) && start_of(selected, index, &ms);
     MediaItem_Destroy(media(selected));
     if (!ok)
         return;

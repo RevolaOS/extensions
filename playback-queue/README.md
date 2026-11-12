@@ -23,4 +23,4 @@ Queue appears in Music and is hidden from the Main Menu; Settings > Music Menu a
 | Default | on |
 | Memory | image only |
 | Settings | the two menu visibility flags |
-| Minimum SDK | 1.33 |
+| Minimum SDK | 1.42 |

@@ -1,16 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef LABELS_H
-#define LABELS_H
+#ifndef CROSSFEED_LABELS_H
+#define CROSSFEED_LABELS_H
 
 #include "shared.h"
 
-/* The mode and the Custom values as the editor shows them, by index. */
-extern const char *const mode_labels[MODE_LABELS];
-extern const char *const direct_labels[DIRECT_LABELS];
-extern const char *const cross_labels[CROSS_LABELS];
-extern const char *const hf_labels[HF_LABELS];
-extern const char *const cutoff_labels[CUTOFF_LABELS];
-extern const char *const precut_labels[PRECUT_LABELS];
+/* The editor's values in wheel order, which is reading order: Mode | Precut,
+ * then Direct | Cross | Highs | Cutoff. */
+enum { PARAM_MODE, PARAM_PRECUT, PARAM_DIRECT, PARAM_CROSS, PARAM_HF, PARAM_CUTOFF, PARAM_COUNT };
+
+enum { LABEL_BYTES = 9 }; /* "-24.0 dB" */
+
+/* Value `index` of `parameter` as the editor shows it: a constant, or
+ * formatted into `out`. */
+const char *crossfeed_label(int parameter, int index, char out[LABEL_BYTES]);
 
 #endif

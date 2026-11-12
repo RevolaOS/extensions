@@ -31,4 +31,4 @@ Values are read from Apple's library when the screen opens; if the library reloa
 | Default | on |
 | Memory | image only, plus a row table of about 100 bytes |
 | Settings | none |
-| Minimum SDK | 1.35 |
+| Minimum SDK | 1.42 |

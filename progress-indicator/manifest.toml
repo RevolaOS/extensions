@@ -4,7 +4,7 @@ description = "Show half-filled status circles for partially played podcasts and
 version = "0.1.0"
 author = "RevolaOS"
 license = "GPL-3.0-only"
-api = "1.34"
+api = "1.42"
 enabled = true
 stability = "beta"
 

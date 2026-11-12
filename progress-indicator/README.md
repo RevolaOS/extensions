@@ -11,4 +11,4 @@ Disabling it restores the stock icons.
 | Default | on |
 | Memory | image, plus 16 bytes per list model it has drawn in, freed with the model or on disable |
 | Settings | none |
-| Minimum SDK | 1.34 |
+| Minimum SDK | 1.42 |

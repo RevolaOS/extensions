@@ -7,42 +7,9 @@
  * lgreitis. */
 
 #include "biquad.h"
+#include "rv_math.h"
 
 #define SCALE 16777216
-
-/* Callers keep |x| below 1.2: decibel gains and the peak grid ratio. The
- * noinline helpers have several callers each; inlined, their soft-float bodies
- * cost more than the calls. */
-static __attribute__((noinline)) double exponential(double x)
-{
-    double sum = 1.0, term = 1.0;
-    for (unsigned int n = 1; n <= 18; n++) {
-        term *= x / n;
-        sum += term;
-    }
-    return sum;
-}
-
-/* Frequencies stay below Nyquist, so 0 <= x < pi. */
-static void sine_cosine(double x, double *sine, double *cosine)
-{
-    double s = x, c = 1.0, st = x, ct = 1.0;
-    for (unsigned int n = 1; n <= 11; n++) {
-        st *= -x * x / ((2 * n) * (2 * n + 1));
-        ct *= -x * x / ((2 * n - 1) * (2 * n));
-        s += st;
-        c += ct;
-    }
-    *sine = s;
-    *cosine = c;
-}
-
-/* 10^(tenths / divisor): divisor 200 turns tenths of a decibel into an amplitude,
- * 400 into the RBJ gain A. */
-static double decibels(int tenths, unsigned int divisor)
-{
-    return exponential(2.302585092994045684 * tenths / divisor);
-}
 
 /* b / a[0] and a[1..2] / a[0] with 24 fractional bits; fails when one does not fit. */
 static int quantize(int32_t out[5], const double b[3], const double a[3])
@@ -65,11 +32,11 @@ int eq_biquad(int32_t out[5], unsigned int type, unsigned int hz, unsigned int q
         return 0;
 
     double b[3] = {1.0, 0.0, 0.0}, d[3] = {1.0, 0.0, 0.0};
-    double attenuation = decibels(-(int)precut_tenths_db, 200);
+    double attenuation = rv_decibels(-(int)precut_tenths_db, 200);
     if (type != EQ_OFF && gain_tenths_db != 0) {
         double s, c;
-        sine_cosine(6.283185307179586477 * hz / rate, &s, &c);
-        double a = decibels(gain_tenths_db, 400);
+        rv_sin_cos(6.283185307179586477 * hz / rate, &s, &c);
+        double a = rv_decibels(gain_tenths_db, 400);
         double alpha = s * 5.0 / q_tenths;
 
         /* RBJ Audio EQ Cookbook, using Q for both bells and shelves.
@@ -85,7 +52,7 @@ int eq_biquad(int32_t out[5], unsigned int type, unsigned int hz, unsigned int q
             /* The high shelf is the low shelf at z -> -z: cos(w) and the odd
              * terms change sign, which floating point represents exactly. */
             double sign = type == EQ_LOW_SHELF ? 1.0 : -1.0, m = sign * c;
-            double beta = 2.0 * decibels(gain_tenths_db, 800) * alpha;
+            double beta = 2.0 * rv_decibels(gain_tenths_db, 800) * alpha;
             b[0] = a * ((a + 1.0) - (a - 1.0) * m + beta);
             b[1] = sign * 2.0 * a * ((a - 1.0) - (a + 1.0) * m);
             b[2] = a * ((a + 1.0) - (a - 1.0) * m - beta);
@@ -105,42 +72,11 @@ int eq_biquad(int32_t out[5], unsigned int type, unsigned int hz, unsigned int q
 
 void eq_attenuate(int32_t coefficients[3], unsigned int precut_tenths_db)
 {
-    double gain = decibels(-(int)precut_tenths_db, 200);
+    double gain = rv_decibels(-(int)precut_tenths_db, 200);
     for (unsigned int i = 0; i < 3; i++) {
         double scaled = coefficients[i] * gain;
         coefficients[i] = (int32_t)(scaled + (scaled < 0.0 ? -0.5 : 0.5));
     }
-}
-
-/* Newton iteration from above; callers pass small positive values. */
-static __attribute__((noinline)) double square_root(double value)
-{
-    if (!(value > 0.0))
-        return 0.0;
-    double root = value > 1.0 ? value : 1.0;
-    for (unsigned int n = 0; n < 48; n++)
-        root = 0.5 * (root + value / root);
-    return root;
-}
-
-/* Natural log by range reduction and the atanh series. */
-static double logarithm(double value)
-{
-    int power = 0;
-    while (value >= 2.0) {
-        value *= 0.5;
-        power++;
-    }
-    while (value < 1.0) {
-        value *= 2.0;
-        power--;
-    }
-    double z = (value - 1.0) / (value + 1.0), term = z, sum = z;
-    for (unsigned int n = 3; n <= 23; n += 2) {
-        term *= z * z;
-        sum += term / n;
-    }
-    return 2.0 * sum + power * 0.693147180559945309;
 }
 
 /* A power ratio as tenths of a decibel within +/-48 dB, rounded or rounded up. */
@@ -150,7 +86,7 @@ static __attribute__((noinline)) int power_tenths(double power, int round_up)
         return -480;
     if (!(power < 63095.7344480193))
         return 480;
-    double tenths = logarithm(power) * 43.42944819032518;
+    double tenths = rv_log(power) * 43.42944819032518;
     int result = (int)tenths;
     if (round_up)
         return result < tenths ? result + 1 : result;
@@ -194,10 +130,10 @@ void eq_response(const int32_t coefficients[EQ_BANDS][5], unsigned int rate, int
     struct peak_stage stages[EQ_BANDS];
     peak_stages(stages, coefficients, EQ_BANDS);
     /* ln 1000 over the steps: three decades from 20 Hz. */
-    double ratio = exponential(6.907755278982137 / (points - 1)), hz = 20.0;
+    double ratio = rv_exp(6.907755278982137 / (points - 1)), hz = 20.0;
     for (unsigned int i = 0; i < points; i++) {
         double s, c;
-        sine_cosine(6.283185307179586477 * hz / rate, &s, &c);
+        rv_sin_cos(6.283185307179586477 * hz / rate, &s, &c);
         tenths[i] = (int16_t)power_tenths(stage_power(stages, EQ_BANDS, c), 0);
         hz *= ratio;
     }
@@ -213,7 +149,7 @@ static double peak_power(const struct peak_stage *stages, unsigned int count, do
 static double tan_half(double hz, unsigned int rate)
 {
     double s, c;
-    sine_cosine(6.283185307179586477 * hz / rate, &s, &c);
+    rv_sin_cos(6.283185307179586477 * hz / rate, &s, &c);
     return s / (1.0 + c);
 }
 
@@ -254,7 +190,7 @@ int eq_peak(const int32_t (*coefficients)[5], unsigned int count, unsigned int r
     /* RBJ filters keep their shape on a log tan(w / 2) axis, so a uniform grid
      * there resolves narrow bells near Nyquist as well as at low frequencies. */
     double low = tan_half(20.0, rate), high = tan_half(20000.0, rate);
-    double ratio = exponential(logarithm(high / low) / (POINTS - 1)), u = low;
+    double ratio = rv_exp(rv_log(high / low) / (POINTS - 1)), u = low;
     double best = 0.0;
     for (unsigned int k = 0; k < POINTS; k++) {
         grid[k] = peak_power(stages, count, u);
@@ -274,10 +210,10 @@ int eq_peak(const int32_t (*coefficients)[5], unsigned int count, unsigned int r
         double a1 = coefficients[i][3] / (double)SCALE, a2 = coefficients[i][4] / (double)SCALE;
         if (!(a2 > 0.0) || a1 * a1 >= 4.0 * a2)
             continue;
-        double c = -a1 / (2.0 * square_root(a2));
+        double c = -a1 / (2.0 * rv_sqrt(a2));
         if (!(c > -1.0 && c < 1.0))
             continue;
-        u = square_root((1.0 - c) / (1.0 + c));
+        u = rv_sqrt((1.0 - c) / (1.0 + c));
         if (u >= low && u <= high)
             starts[start_count++] = u;
     }

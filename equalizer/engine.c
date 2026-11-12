@@ -15,7 +15,7 @@
 #include "engine.h"
 #include "biquad.h"
 #include "osos-2.0.5.h"
-#include "rv_api.h"
+#include "rv_audio.h"
 #include "rv_libc.h"
 
 enum {
@@ -34,12 +34,13 @@ static int32_t custom[2][EQ_BANDS][5];
 static uint8_t custom_precut[2];
 
 /* The set left for the pump task, and what the last load found. */
-static struct {
+struct eq_set {
     int32_t coefficients[EQ_BANDS][5];
     uint8_t count;
     uint8_t fade; /* blend from what plays instead of switching */
-} next;
-static volatile uint32_t generation;
+};
+static struct eq_set next;
+static struct rv_handoff handoff;
 static struct ThreeBandEQ *volatile owner; /* NULL until the first load */
 static uint8_t plays_custom, custom_bank;
 static volatile uint8_t rest_pending;
@@ -51,7 +52,7 @@ static uint32_t native_precut;
 
 /* Pump task only. */
 static struct eq_stage playing[EQ_BANDS], fading[EQ_BANDS];
-static uint32_t taken, fade_remaining;
+static uint32_t fade_remaining;
 
 void eq_engine_start(const struct rv_api *core)
 {
@@ -77,7 +78,7 @@ static void leave(const int32_t (*set)[5], unsigned int count, unsigned int fade
             next.coefficients[i][c] = set[i][c];
     next.count = (uint8_t)count;
     next.fade = (uint8_t)fade;
-    generation++;
+    handoff.generation++;
 }
 
 int eq_publish(const uint8_t values[EQ_VALUES])
@@ -174,27 +175,22 @@ void eq_reset(struct ThreeBandEQ *eq, const void *next_hook)
  * generation again, and the next call takes that one. */
 static void take(void)
 {
-    uint32_t seen;
-    unsigned int count, fade;
+    struct eq_set set;
     memcpy(fading, playing, sizeof fading);
-    do {
-        seen = generation;
-        count = next.count;
-        fade = next.fade;
-        for (unsigned int i = 0; i < EQ_BANDS; i++) {
-            const int32_t *c = next.coefficients[i];
-            struct eq_stage *stage = &playing[i];
-            stage->b0 = c[0];
-            stage->b1 = c[1];
-            stage->b2 = c[2];
-            stage->a1 = -c[3];
-            stage->a2 = -c[4];
-            stage->bypass = i >= count || (c[0] == UNITY && !(c[1] | c[2] | c[3] | c[4]));
-        }
-    } while (seen != generation);
-    taken = seen;
+    rv_handoff_take(&handoff, &set, &next, sizeof set);
+    for (unsigned int i = 0; i < EQ_BANDS; i++) {
+        const int32_t *c = set.coefficients[i];
+        struct eq_stage *stage = &playing[i];
+        stage->b0 = c[0];
+        stage->b1 = c[1];
+        stage->b2 = c[2];
+        stage->a1 = -c[3];
+        stage->a2 = -c[4];
+        stage->bypass =
+            i >= set.count || (c[0] == UNITY && !(c[1] | c[2] | c[3] | c[4]));
+    }
     eq_cascade_rest(playing, EQ_BANDS);
-    fade_remaining = fade ? FADE_FRAMES : 0;
+    fade_remaining = set.fade ? FADE_FRAMES : 0;
 }
 
 void eq_process(struct ThreeBandEQ *eq, int16_t *samples, uint32_t frames, int16_t **output,
@@ -208,7 +204,7 @@ void eq_process(struct ThreeBandEQ *eq, int16_t *samples, uint32_t frames, int16
     }
     *output = samples;
     *output_frames = frames;
-    if (taken != generation)
+    if (rv_handoff_pending(&handoff))
         take();
     if (rest_pending) {
         rest_pending = 0;

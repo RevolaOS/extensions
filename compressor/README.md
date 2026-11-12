@@ -24,4 +24,4 @@ Enabling it adds the Compressor row after Sound Check. With Threshold at Off it 
 | Default | off |
 | Memory | image only |
 | Settings | the six values |
-| Minimum SDK | 1.40 |
+| Minimum SDK | 1.42 |

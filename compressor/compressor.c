@@ -22,7 +22,7 @@
  * bits, so its S7.24 gains and shifts apply unchanged. */
 
 #include "compressor.h"
-#include "rv_api.h"
+#include "rv_audio.h"
 #include "rv_libc.h"
 
 enum {
@@ -35,11 +35,11 @@ enum {
 static const struct rv_api *api;
 
 static struct compressor_set next;
-static volatile uint32_t generation;
+static struct rv_handoff handoff;
 
 /* Pump task only. */
 static struct compressor_set playing;
-static uint32_t taken, rate_playing;
+static uint32_t rate_playing;
 static struct compressor_design design;
 static int32_t release_gain, release_holdoff;
 static int32_t hp_x1, hp1_y1, hp2_y1;
@@ -55,21 +55,13 @@ void compressor_start(const struct rv_api *core)
 
 void compressor_publish(const struct compressor_set *set)
 {
-    uint32_t state = api->irq_save();
-    next = *set;
-    generation++;
-    api->irq_restore(state);
+    rv_handoff_publish(api, &handoff, &next, set, sizeof next);
 }
 
 /* a (S7.24) times b. */
 static inline int32_t scale(int32_t a, int32_t b)
 {
     return (int32_t)(((int64_t)a * b) >> 24);
-}
-
-static inline int32_t fracmul(int32_t a, int32_t b)
-{
-    return (int32_t)(((int64_t)a * b) >> 31);
 }
 
 static inline int32_t magnitude(int32_t sample)
@@ -94,12 +86,7 @@ static void reset(uint32_t rate)
 static void take(uint32_t rate)
 {
     int was_on = playing.threshold_db != 0;
-    uint32_t seen;
-    do {
-        seen = generation;
-        playing = next;
-    } while (seen != generation);
-    taken = seen;
+    rv_handoff_take(&handoff, &playing, &next, sizeof playing);
     if (playing.threshold_db) {
         compressor_design(&design, &playing, rate);
         if (!was_on || rate != rate_playing)
@@ -118,16 +105,11 @@ static inline int32_t curve_gain(int32_t level)
     if (level < 1 << 15) {
         unsigned int index = (unsigned int)level >> 9;
         int32_t rest = (level & 0x1ff) << 22;
-        return gain[index] - fracmul(rest, gain[index] - gain[index + 1]);
+        return gain[index] - rv_fracmul(rest, gain[index] - gain[index + 1]);
     }
     if (level < 1 << 17)
-        return gain[64] - fracmul(((level - (1 << 15)) / 3) << 16, gain[64] - gain[65]);
+        return gain[64] - rv_fracmul(((level - (1 << 15)) / 3) << 16, gain[64] - gain[65]);
     return -1;
-}
-
-static inline int16_t output(int32_t sample)
-{
-    return sample > 32767 ? 32767 : sample < -32768 ? -32768 : (int16_t)sample;
 }
 
 /* ARM: every frame is about nine 32 by 32 to 64 bit multiplies, one smull
@@ -179,8 +161,10 @@ static void run(int16_t *samples, uint32_t frames)
         if (++index >= delay_length)
             index = 0;
         if (total != UNITY) {
-            samples[0] = output((int32_t)(((int64_t)total * delayed_left + (1 << 23)) >> 24));
-            samples[1] = output((int32_t)(((int64_t)total * delayed_right + (1 << 23)) >> 24));
+            samples[0] =
+                rv_saturate16((int32_t)(((int64_t)total * delayed_left + (1 << 23)) >> 24));
+            samples[1] =
+                rv_saturate16((int32_t)(((int64_t)total * delayed_right + (1 << 23)) >> 24));
         } else {
             samples[0] = delayed_left;
             samples[1] = delayed_right;
@@ -196,7 +180,7 @@ static void run(int16_t *samples, uint32_t frames)
 
 void compressor_process(int16_t *samples, uint32_t frames, uint32_t rate)
 {
-    if (taken != generation || rate != rate_playing)
+    if (rv_handoff_pending(&handoff) || rate != rate_playing)
         take(rate);
     if (playing.threshold_db)
         run(samples, frames);

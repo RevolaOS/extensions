@@ -27,6 +27,7 @@ with tempfile.TemporaryDirectory(prefix="chapters-tests-") as name:
     )
     (work / "rv_api.h").write_text((sdk / "rv_api.h").read_text())
     (work / "rv_libc.h").write_text((sdk / "rv_libc.h").read_text())
+    (work / "rv_media.h").write_text((sdk / "rv_media.h").read_text())
     executable = work / "contracts"
     subprocess.run(
         [

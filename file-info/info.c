@@ -7,6 +7,7 @@
 #include "osos-2.0.5.h"
 #include "rv_api.h"
 #include "rv_libc.h"
+#include "rv_media.h"
 
 enum field {
     TITLE,
@@ -98,12 +99,6 @@ static struct {
     char value[24]; /* the longest is "4294967295 kbps" */
 } info;
 
-static uint32_t method(const void *item, uint32_t slot)
-{
-    typedef uint32_t (*getter)(const void *);
-    return RV_FIELD(RV_FIELD(item, 0, void *), slot, getter)(item);
-}
-
 static const uint8_t *record(const void *item)
 {
     return RV_FIELD(item, MediaItem_record, const uint8_t *);
@@ -136,13 +131,10 @@ static const char *text(const void *item, enum field field)
         [GROUPING] = MediaItem_grouping_method,   [COMMENT] = MediaItem_comment_method,
         [DESCRIPTION] = MediaItem_description_method, [KIND] = MediaItem_file_type_method,
     };
-    typedef void (*getter)(const void *, void *);
     release_text();
-    NativeString_InitEmpty((struct NativeString *)info.text);
+    const char *data = rv_item_text(item, slots[field], (struct NativeString *)info.text);
     info.text_live = 1;
-    RV_FIELD(RV_FIELD(item, 0, void *), slots[field], getter)(item, info.text);
-    const char *data = NativeString_GetUtf8((struct NativeString *)info.text);
-    if (data && *data)
+    if (data)
         return data;
     info.unknown = 1;
     return "";
@@ -212,10 +204,10 @@ static const char *value(const void *item, enum field field)
     const uint8_t *r = record(item);
     switch (field) {
     case YEAR:
-        number(method(item, MediaItem_year_method) & 0xffff, "");
+        number(rv_item_value(item, MediaItem_year_method) & 0xffff, "");
         break;
     case DURATION: {
-        uint32_t ms = method(item, MediaItem_duration_method);
+        uint32_t ms = rv_item_value(item, MediaItem_duration_method);
         if (ms)
             rv_format_duration(info.value, sizeof info.value, ms / 1000);
         else
@@ -223,25 +215,25 @@ static const char *value(const void *item, enum field field)
         break;
     }
     case CHAPTERS:
-        number(method(item, MediaItem_chapter_count_method), "");
+        number(rv_item_value(item, MediaItem_chapter_count_method), "");
         break;
     /* The record keeps the track and disc totals beside the ordinals. */
     case TRACK:
-        ordinal(method(item, MediaItem_track_number_method) & 0xffff,
+        ordinal(rv_item_value(item, MediaItem_track_number_method) & 0xffff,
                 RV_FIELD(r, MediaRecord_track_total, uint16_t));
         break;
     case DISC:
-        ordinal(method(item, MediaItem_disc_number_method) & 0xffff,
+        ordinal(rv_item_value(item, MediaItem_disc_number_method) & 0xffff,
                 RV_FIELD(r, MediaRecord_disc_total, uint16_t));
         break;
     case SAMPLE_RATE:
         sample_rate(RV_FIELD(r, MediaRecord_sample_rate, uint32_t));
         break;
     case BITRATE:
-        number(method(item, MediaItem_bitrate_method) & 0xffff, " kbps");
+        number(rv_item_value(item, MediaItem_bitrate_method) & 0xffff, " kbps");
         break;
     case FILE_SIZE: {
-        uint32_t bytes = method(item, MediaItem_file_size_method);
+        uint32_t bytes = rv_item_value(item, MediaItem_file_size_method);
         if (bytes)
             rv_format(info.value, sizeof info.value, "%lu.%lu MiB", (unsigned long)(bytes >> 20),
                       (unsigned long)((bytes & 0xfffff) * 10 >> 20));
@@ -250,7 +242,7 @@ static const char *value(const void *item, enum field field)
         break;
     }
     case RATING: {
-        int32_t rating = (int32_t)method(item, MediaItem_rating_method);
+        int32_t rating = (int32_t)rv_item_value(item, MediaItem_rating_method);
         if (rating > 0 && rating <= 100)
             rv_format(info.value, sizeof info.value, "%d/5", (int)(rating / 20));
         else
@@ -280,11 +272,11 @@ static const char *value(const void *item, enum field field)
         break;
     case PLAY_COUNT:
         rv_format(info.value, sizeof info.value, "%lu",
-                  (unsigned long)method(item, MediaItem_play_count_method));
+                  (unsigned long)rv_item_value(item, MediaItem_play_count_method));
         break;
     case SKIP_COUNT:
         rv_format(info.value, sizeof info.value, "%lu",
-                  (unsigned long)method(item, MediaItem_skip_count_method));
+                  (unsigned long)rv_item_value(item, MediaItem_skip_count_method));
         break;
     default:
         return text(item, field);
@@ -307,11 +299,6 @@ static const uint8_t *rows_for(uint32_t kind)
     return song_rows;
 }
 
-static int valid(const void *item)
-{
-    return item && record(item) && MediaItem_IsValid((struct MediaItem *)item);
-}
-
 uint32_t info_rows(const void *item)
 {
     if (!item)
@@ -320,7 +307,7 @@ uint32_t info_rows(const void *item)
         return info.count;
     memcpy(info.item, item, MediaItem_bytes);
     info.count = 0;
-    if (!valid(item))
+    if (!rv_item_valid(item))
         return 0;
     uint32_t kind = RV_FIELD(record(item), MediaRecord_media_kind, uint32_t);
     for (const uint8_t *row = rows_for(kind); *row != FIELDS; row++) {
@@ -343,7 +330,7 @@ const char *info_row(const void *item, uint32_t index, const char **out)
     info.unknown = 0;
     info.value[0] = 0;
     /* The list can outlive the item when the library reloads. */
-    *out = valid(item) ? value(item, field) : info.value;
+    *out = rv_item_valid(item) ? value(item, field) : info.value;
     return labels + label_offsets[field];
 }
 

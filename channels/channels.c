@@ -23,16 +23,15 @@
  * leave S16: Thumb multiplies suffice. */
 
 #include "channels.h"
-#include "rv_api.h"
+#include "rv_audio.h"
 
 static const struct rv_api *api;
 
 static struct channels_set next;
-static volatile uint32_t generation;
+static struct rv_handoff handoff;
 
 /* Pump task only. */
 static struct channels_set playing;
-static uint32_t taken;
 static int32_t gain, cross;
 
 void channels_start(const struct rv_api *core)
@@ -42,10 +41,7 @@ void channels_start(const struct rv_api *core)
 
 void channels_publish(const struct channels_set *set)
 {
-    uint32_t state = api->irq_save();
-    next = *set;
-    generation++;
-    api->irq_restore(state);
+    rv_handoff_publish(api, &handoff, &next, set, sizeof next);
 }
 
 void channels_coefficients(unsigned int percent, int32_t *gain_out, int32_t *cross_out)
@@ -67,12 +63,7 @@ void channels_coefficients(unsigned int percent, int32_t *gain_out, int32_t *cro
  * generation again, and the next call takes that one. */
 static void take(void)
 {
-    uint32_t seen;
-    do {
-        seen = generation;
-        playing = next;
-    } while (seen != generation);
-    taken = seen;
+    rv_handoff_take(&handoff, &playing, &next, sizeof playing);
     if (playing.mode == CHANNELS_CUSTOM)
         channels_coefficients(5u * playing.width, &gain, &cross);
 }
@@ -122,7 +113,7 @@ static void swap(int16_t *samples, uint32_t frames)
 
 void channels_process(int16_t *samples, uint32_t frames)
 {
-    if (taken != generation)
+    if (rv_handoff_pending(&handoff))
         take();
     switch (playing.mode) {
     case CHANNELS_MONO:

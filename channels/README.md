@@ -25,4 +25,4 @@ Enabling it adds the Channels row after Sound Check. With the mode Stereo it cos
 | Default | off |
 | Memory | image only |
 | Settings | mode and width |
-| Minimum SDK | 1.40 |
+| Minimum SDK | 1.42 |

@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="progress-indicator-tests-") as name:
     api = (sdk / "rv_api.h").read_text()
     api = re.sub(r"uint32_t ([abcdef])([,)])", r"uintptr_t \1\2", api)
     (work / "rv_api.h").write_text(api)
-    for file in ("rv_ui.h", "rv_sites.h"):
+    for file in ("rv_ui.h", "rv_sites.h", "rv_media.h"):
         (work / file).write_text((sdk / file).read_text())
     executable = work / "contracts"
     subprocess.run(

@@ -14,4 +14,4 @@ A chapter with an empty title shows as "Chapter 3". Apple's library leaves out a
 | Default | on |
 | Memory | image only, plus 44 bytes for the row being drawn |
 | Settings | none |
-| Minimum SDK | 1.36 |
+| Minimum SDK | 1.42 |

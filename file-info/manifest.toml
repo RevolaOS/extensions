@@ -5,7 +5,7 @@ version = "0.1.0"
 author = "RevolaOS"
 note = "Rewrite of RepriseOS Song Info"
 license = "GPL-3.0-only"
-api = "1.35"
+api = "1.42"
 enabled = true
 stability = "beta"
 

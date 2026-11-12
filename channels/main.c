@@ -5,8 +5,8 @@
  * chosen on every buffer, after Crossfeed and before the Compressor. */
 
 #include "modes.h"
-#include "osos-2.0.5.h"
 #include "rv_api.h"
+#include "rv_audio.h"
 #include "rv_libc.h"
 #include "rv_menus.h"
 #include "rv_sites.h"
@@ -42,10 +42,8 @@ static void setting_changed(uint16_t key)
 static uint32_t on_output(uint32_t samples, uint32_t frames, uint32_t context,
                           const void *next)
 {
-    const void *effects = (const void *)context;
-    uint32_t bits = RV_FIELD(effects, AudioEffectsContext_output_bits, uint32_t);
-    uint32_t channels = RV_FIELD(effects, AudioEffectsContext_output_channels, uint32_t);
-    if (frames && bits == 16 && channels == 2)
+    uint32_t rate;
+    if (frames && rv_audio_stereo16((const void *)context, &rate))
         channels_process((int16_t *)samples, frames);
     return api->hook_next(next, samples, frames, context, 0, 0, 0);
 }

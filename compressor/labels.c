@@ -1,24 +1,29 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-/* The values as text; shared.h gives each index its value. */
-
 #include "labels.h"
+#include "rv_libc.h"
 
-const char *const threshold_labels[THRESHOLD_LABELS] = {
-    "Off", "-3 dB", "-6 dB", "-9 dB", "-12 dB", "-15 dB", "-18 dB", "-21 dB", "-24 dB",
-};
+static const char *const ratios[RATIO_LABELS] = {"2:1", "4:1", "6:1", "10:1", "Limit"};
 
-const char *const makeup_labels[MAKEUP_LABELS] = {"Off", "Auto"};
-
-const char *const ratio_labels[RATIO_LABELS] = {"2:1", "4:1", "6:1", "10:1", "Limit"};
-
-const char *const knee_labels[KNEE_LABELS] = {"Hard", "Soft"};
-
-const char *const attack_labels[ATTACK_LABELS] = {
-    "0 ms", "5 ms", "10 ms", "15 ms", "20 ms", "25 ms", "30 ms",
-};
-
-const char *const release_labels[RELEASE_LABELS] = {
-    "100 ms", "200 ms", "300 ms", "400 ms", "500 ms",
-    "600 ms", "700 ms", "800 ms", "900 ms", "1000 ms",
-};
+const char *compressor_label(int parameter, int index, char out[LABEL_BYTES])
+{
+    switch (parameter) {
+    case PARAM_THRESHOLD:
+        if (index == 0)
+            return "Off";
+        rv_format_int(out, LABEL_BYTES, threshold_db(index), " dB");
+        return out;
+    case PARAM_RATIO:
+        return ratios[index];
+    case PARAM_KNEE:
+        return index ? "Soft" : "Hard";
+    case PARAM_MAKEUP:
+        return index ? "Auto" : "Off";
+    case PARAM_ATTACK:
+        rv_format_int(out, LABEL_BYTES, (int)attack_ms(index), " ms");
+        return out;
+    default:
+        rv_format_int(out, LABEL_BYTES, (int)release_ms(index), " ms");
+        return out;
+    }
+}

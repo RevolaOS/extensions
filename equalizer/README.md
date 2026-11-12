@@ -21,4 +21,4 @@ Enabling the extension while music plays applies the fix from the next track or 
 | Default | on |
 | Memory | image only |
 | Settings | the Custom preset and whether the Edit EQ row shows |
-| Minimum SDK | 1.38 |
+| Minimum SDK | 1.42 |

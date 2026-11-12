@@ -188,22 +188,25 @@ def design_tests(dll):
 
 
 def label_tests(dll):
-    def labels(name, count):
-        return [s.decode() for s in (ctypes.c_char_p * count).in_dll(dll, name)]
+    label = dll.compressor_label
+    label.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
+    label.restype = ctypes.c_char_p
+    out = ctypes.create_string_buffer(16)
 
-    assert labels("threshold_labels", 9) == ["Off"] + [
-        f"{-3 * i} dB" for i in range(1, 9)
-    ]
-    assert labels("makeup_labels", 2) == ["Off", "Auto"]
-    assert labels("ratio_labels", 5) == ["2:1", "4:1", "6:1", "10:1", "Limit"]
-    assert labels("knee_labels", 2) == ["Hard", "Soft"]
-    assert labels("attack_labels", 7) == [f"{5 * i} ms" for i in range(7)]
-    assert labels("release_labels", 10) == [f"{100 + 100 * i} ms" for i in range(10)]
+    def labels(parameter, count):
+        return [label(parameter, i, out).decode() for i in range(count)]
+
+    THRESHOLD, RATIO, KNEE, MAKEUP, ATTACK, RELEASE = range(6)
+    assert labels(THRESHOLD, 9) == ["Off"] + [f"{-3 * i} dB" for i in range(1, 9)]
+    assert labels(MAKEUP, 2) == ["Off", "Auto"]
+    assert labels(RATIO, 5) == ["2:1", "4:1", "6:1", "10:1", "Limit"]
+    assert labels(KNEE, 2) == ["Hard", "Soft"]
+    assert labels(ATTACK, 7) == [f"{5 * i} ms" for i in range(7)]
+    assert labels(RELEASE, 10) == [f"{100 + 100 * i} ms" for i in range(10)]
     defaults = (0, 1, 1, 1, 1, 4)
-    names = ("threshold", "makeup", "ratio", "knee", "attack", "release")
-    counts = (9, 2, 5, 2, 7, 10)
-    chosen = [labels(f"{n}_labels", c)[d] for n, c, d in zip(names, counts, defaults)]
-    assert chosen == ["Off", "Auto", "4:1", "Soft", "5 ms", "500 ms"]
+    counts = (9, 5, 2, 2, 7, 10)
+    chosen = [labels(p, c)[d] for p, (c, d) in enumerate(zip(counts, defaults))]
+    assert chosen == ["Off", "4:1", "Soft", "Auto", "5 ms", "500 ms"]
 
 
 def wrap(value):
@@ -440,6 +443,7 @@ with tempfile.TemporaryDirectory(prefix="compressor-tests-") as name:
         "compressor.so",
         [
             root / "host.c",
+            sdk / "rv_libc.c",
             root.parent / "compressor.c",
             root.parent / "curve.c",
             root.parent / "design.c",

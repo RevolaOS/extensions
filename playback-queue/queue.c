@@ -9,6 +9,8 @@
 #include "queue.h"
 #include "osos-2.0.5.h"
 #include "rv_api.h"
+#include "rv_libc.h"
+#include "rv_media.h"
 #include <stddef.h>
 
 static void *view_of(void *player)
@@ -56,18 +58,6 @@ static int reversed(struct MediaList *list)
 static uint32_t rank_of(struct MediaEntry *entry)
 {
     return RV_FIELD(entry, MediaEntry_song_shuffle_rank, uint32_t);
-}
-
-static void *lock(void)
-{
-    void *player = MediaPlayer_GetInstance();
-    Mutex_Lock((uint8_t *)player + MediaPlayer_mutex);
-    return player;
-}
-
-static void unlock(void *player)
-{
-    Mutex_Unlock((uint8_t *)player + MediaPlayer_mutex);
 }
 
 /* The current song when the list is a flat song list the queue can change. */
@@ -261,17 +251,17 @@ static int is_queueable(struct MediaItem *item)
 
 int queue_available(void)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     int available = editable(player);
-    unlock(player);
+    rv_player_unlock(player);
     return available;
 }
 
 int queue_can_add(void)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     int allowed = !RV_FIELD(player, MediaPlayer_current_track, void *) || editable(player);
-    unlock(player);
+    rv_player_unlock(player);
     return allowed;
 }
 
@@ -282,18 +272,18 @@ int queue_can_add_item(const void *item)
 
 int queue_start_idle(void)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     int start = MediaPlayer_IsStopped(player) && editable(player) && upcoming(player);
     if (start)
         MediaPlayer_PlayIndex(player, first_pending(player), 0, 0, 0);
-    unlock(player);
+    rv_player_unlock(player);
     return start;
 }
 
 void queue_add_item(const void *item, int last)
 {
     struct MediaItem *song = (struct MediaItem *)item;
-    void *player = lock();
+    void *player = rv_player_lock();
     if (song && is_queueable(song) && prepare_queue(player)) {
         uint32_t position = last ? count_of(player) : first_pending(player);
         stop_artwork(player);
@@ -302,15 +292,15 @@ void queue_add_item(const void *item, int last)
         else
             MediaPlayer_RebuildArtwork(player);
     }
-    unlock(player);
+    rv_player_unlock(player);
 }
 
 void queue_add_browser(void *browser, int last)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     struct MediaList *source = browser ? MediaBrowser_GetCurrentList(browser) : NULL;
     if (!source || !root_of(source) || !prepare_queue(player)) {
-        unlock(player);
+        rv_player_unlock(player);
         return;
     }
     /* The songs and order Add to On-The-Go would take for this selection. */
@@ -338,14 +328,14 @@ void queue_add_browser(void *browser, int last)
         changed(player);
     else
         MediaPlayer_RebuildArtwork(player);
-    unlock(player);
+    rv_player_unlock(player);
 }
 
 uint32_t queue_rows(void)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     uint32_t rows = editable(player) ? upcoming(player) : 0;
-    unlock(player);
+    rv_player_unlock(player);
     return rows;
 }
 
@@ -355,7 +345,7 @@ int queue_changed(void)
     static uint32_t last_count;
     static int32_t last_index;
     static uint8_t last_order;
-    void *player = lock();
+    void *player = rv_player_lock();
     int valid = editable(player);
     void *list = valid ? list_of(player) : NULL;
     void *track = valid ? RV_FIELD(player, MediaPlayer_current_track, void *) : NULL;
@@ -369,7 +359,7 @@ int queue_changed(void)
     last_count = count;
     last_index = index;
     last_order = order;
-    unlock(player);
+    rv_player_unlock(player);
     return changed;
 }
 
@@ -378,36 +368,27 @@ void queue_text(uint32_t row, int artist, char *out, uint32_t capacity)
     if (!capacity)
         return;
     out[0] = 0;
-    void *player = lock();
+    void *player = rv_player_lock();
     if (editable(player) && row < upcoming(player)) {
         _Alignas(uint32_t) uint8_t item[MediaItem_bytes];
         _Alignas(uint32_t) uint8_t text[NativeString_bytes];
         MediaItem_InitFromRecord((struct MediaItem *)item, NULL, 0);
         if (MediaPlayer_GetItemAtIndex(player, first_pending(player) + row,
                                        (struct MediaItem *)item)) {
-            void (*get)(void *, struct NativeString *) =
-                RV_FIELD(RV_FIELD(item, 0, void **),
-                         artist ? MediaItem_artist_method : MediaItem_title_method, void *);
-            NativeString_InitEmpty((struct NativeString *)text);
-            get(item, (struct NativeString *)text);
-            const char *utf8 = NativeString_GetUtf8((struct NativeString *)text);
-            uint32_t i = 0;
-            for (; utf8 && utf8[i] && i + 1 < capacity; i++)
-                out[i] = utf8[i];
-            /* A byte limit must not leave part of a UTF-8 character. */
-            while (i && ((uint8_t)utf8[i] & 0xc0) == 0x80)
-                i--;
-            out[i] = 0;
+            const char *utf8 =
+                rv_item_text(item, artist ? MediaItem_artist_method : MediaItem_title_method,
+                             (struct NativeString *)text);
+            rv_copy_utf8(out, capacity, utf8);
             NativeString_Destroy((struct NativeString *)text);
         }
         MediaItem_Destroy((struct MediaItem *)item);
     }
-    unlock(player);
+    rv_player_unlock(player);
 }
 
 void queue_play(uint32_t row)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     if (editable(player) && row < upcoming(player)) {
         struct MediaEntry *current = current_entry(player);
         uint32_t first = first_pending(player);
@@ -423,7 +404,7 @@ void queue_play(uint32_t row)
             changed(player);
         }
     }
-    unlock(player);
+    rv_player_unlock(player);
 }
 
 /* Playback can advance while a context menu is open. Never edit a different
@@ -433,26 +414,26 @@ static struct MediaList *menu_list;
 
 int queue_capture(uint32_t row)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     menu_entry = NULL;
     menu_list = NULL;
     if (editable(player) && row < upcoming(player)) {
         menu_list = list_of(player);
         menu_entry = PlaybackList_GetEntryByIndex(view_of(player), first_pending(player) + row);
     }
-    unlock(player);
+    rv_player_unlock(player);
     return menu_entry != NULL;
 }
 
 void queue_move(uint32_t from, uint32_t to)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     if (editable(player) && from != to && from < upcoming(player) &&
         to < upcoming(player)) {
         uint32_t first = first_pending(player);
         struct MediaEntry *entry = PlaybackList_GetEntryByIndex(view_of(player), first + from);
         if (list_of(player) != menu_list || entry != menu_entry) {
-            unlock(player);
+            rv_player_unlock(player);
             return;
         }
         stop_artwork(player);
@@ -463,12 +444,12 @@ void queue_move(uint32_t from, uint32_t to)
         }
         changed(player);
     }
-    unlock(player);
+    rv_player_unlock(player);
 }
 
 void queue_remove(uint32_t row)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     if (editable(player) && row < upcoming(player) &&
         list_of(player) == menu_list &&
         PlaybackList_GetEntryByIndex(view_of(player), first_pending(player) + row) == menu_entry) {
@@ -476,17 +457,17 @@ void queue_remove(uint32_t row)
         remove_one(player, first_pending(player) + row);
         changed(player);
     }
-    unlock(player);
+    rv_player_unlock(player);
 }
 
 void queue_clear(void)
 {
-    void *player = lock();
+    void *player = rv_player_lock();
     struct MediaEntry *current = current_entry(player);
     if (editable(player) && upcoming(player)) {
         stop_artwork(player);
         remove_between(list_of(player), current, NULL);
         changed(player);
     }
-    unlock(player);
+    rv_player_unlock(player);
 }

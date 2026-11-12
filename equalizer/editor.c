@@ -8,6 +8,7 @@
  *
  * Adapted from RepriseOS payload/eq_canvas.c (d640115, 93f6a45) by lgreitis. */
 
+#include "rv_canvas.h"
 #include "rv_libc.h"
 #include "rv_ui.h"
 #include "shared.h"
@@ -15,7 +16,7 @@
 static const struct rv_api *api;
 static rv_extension_handle self;
 
-enum { MODE_BAND, MODE_PARAMETER, MODE_EDIT };
+enum { DEPTH_BAND, DEPTH_PARAMETER, DEPTH_EDIT, DEPTHS };
 
 /* Wheel order follows reading order: Type | Precut, then Gain | Frequency | Q. */
 enum { PARAM_TYPE, PARAM_PRECUT, PARAM_GAIN, PARAM_FREQUENCY, PARAM_Q, PARAM_COUNT };
@@ -24,29 +25,32 @@ static const char *const titles[PARAM_COUNT] = {"Type", "Precut", "Gain", "Frequ
 static const char *const types[] = {"Off", "Peaking", "Low shelf", "High shelf"};
 
 enum {
-    CANVAS_WIDTH = 320,
     CANVAS_HEIGHT = 217,
     BAND_LEFT = 42,
     BAND_WIDTH = 54,
     BAND_TOP = 18,
     BAND_BOTTOM = 108,
     BAND_ZERO = (BAND_TOP + BAND_BOTTOM) / 2,
-    TYPE_TOP = 141,
-    TYPE_HEIGHT = 27,
-    PARAM_TOP = TYPE_TOP + TYPE_HEIGHT + 1,
-    PARAM_HEIGHT = CANVAS_HEIGHT - PARAM_TOP,
-    RESPONSE_LEFT = 44,
+    INLINE_TOP = 141, /* Type | Precut, title left and value right */
+    INLINE_HEIGHT = 27,
+    INLINE_COUNT = PARAM_GAIN,
+    CELL_TOP = INLINE_TOP + INLINE_HEIGHT + 1,
+    CELL_HEIGHT = CANVAS_HEIGHT - CELL_TOP,
     RESPONSE_POINTS = 261,
     RESPONSE_TOP = 36,
-    RESPONSE_ZERO = 108,
     RESPONSE_BOTTOM = 180,
+    RESPONSE_ZERO = (RESPONSE_TOP + RESPONSE_BOTTOM) / 2,
+    TICK_TOP = 192,
+    TICK_HEIGHT = 22,
 };
 
 static struct {
-    int band, parameter, mode, response, dirty;
-    int menu_taken; /* the Menu press stepped back a mode; its release is not the system's */
+    struct rv_editor input;
+    int band, parameter, response, dirty;
     int16_t curve[RESPONSE_POINTS];
-    int extent; /* tenths of a decibel at the top and bottom of the curve */
+    /* The response from +extent at the top to -extent at the bottom, tenths
+     * of a decibel, doubled until the curve fits. */
+    struct rv_plot plot;
     unsigned int precut;
 } editor;
 
@@ -79,30 +83,6 @@ static void save(const struct rv_context *ctx)
 
 enum { LABEL_BYTES = 12 };
 
-/* "-0.5 dB", "+12.0 dB" with `plus`, "0.7" with an empty unit. */
-static void tenths_label(char *out, int tenths, int plus, const char *unit)
-{
-    const char *sign = tenths < 0 ? "-" : plus && tenths ? "+" : "";
-    unsigned int magnitude = (unsigned int)(tenths < 0 ? -tenths : tenths);
-    rv_format(out, LABEL_BYTES, "%s%u.%u%s", sign, magnitude / 10, magnitude % 10, unit);
-}
-
-/* "60 Hz", "1k Hz", "3.15k Hz". */
-static void frequency_label(char *out, unsigned int hz)
-{
-    unsigned int fraction = hz % 1000;
-    if (hz < 1000) {
-        rv_format(out, LABEL_BYTES, "%u Hz", hz);
-        return;
-    }
-    while (fraction && fraction % 10 == 0)
-        fraction /= 10;
-    if (fraction)
-        rv_format(out, LABEL_BYTES, "%u.%uk Hz", hz / 1000, fraction);
-    else
-        rv_format(out, LABEL_BYTES, "%uk Hz", hz / 1000);
-}
-
 static const char *label(int parameter, unsigned int choice, char out[LABEL_BYTES])
 {
     switch (parameter) {
@@ -111,151 +91,74 @@ static const char *label(int parameter, unsigned int choice, char out[LABEL_BYTE
     case PARAM_PRECUT:
         if (choice == EQ_PRECUT_AUTO)
             return "Auto";
-        tenths_label(out, eq_precut_tenths(choice), 0, " dB");
+        rv_format_tenths(out, LABEL_BYTES, eq_precut_tenths(choice), 0, " dB");
         return out;
     case PARAM_GAIN:
-        tenths_label(out, eq_gain_tenths(choice), 1, " dB");
+        rv_format_tenths(out, LABEL_BYTES, eq_gain_tenths(choice), 1, " dB");
         return out;
     case PARAM_FREQUENCY:
-        frequency_label(out, eq_frequencies[choice]);
+        rv_format_hz(out, LABEL_BYTES, eq_frequencies[choice]);
         return out;
     default:
-        tenths_label(out, eq_q_tenths(choice), 0, "");
+        rv_format_tenths(out, LABEL_BYTES, eq_q_tenths(choice), 0, "");
         return out;
     }
 }
 
-enum {
-    COLOR_BACKGROUND,
-    COLOR_CURVE, /* the accent as text: the curve, the bars, the selected band's label */
-    COLOR_FILL,  /* the accent as a surface: the parameter being edited */
-    COLOR_TEXT,
-    COLOR_ON_FILL,
-    COLOR_ROLES,
-    /* Derived from the roles above. */
-    COLOR_MUTED = COLOR_ROLES,
-    COLOR_TRACK,
-    COLOR_INACTIVE,
-    COLOR_GRID,
-    COLOR_ZERO,
-    COLOR_BORDER,
-    COLOR_SELECTION,
-    COLOR_COUNT,
-};
-static rv_color colors[COLOR_COUNT];
-
-static const uint8_t roles[COLOR_ROLES] = {RV_COLOR_BACKGROUND, RV_COLOR_ACCENT_TEXT,
-                                           RV_COLOR_HIGHLIGHT, RV_COLOR_TEXT,
-                                           RV_COLOR_HIGHLIGHT_TEXT};
-
-/* Greys are the background mixed toward the text by weight/255. */
-static const uint8_t greys[][2] = {
-    {COLOR_TRACK, 22}, {COLOR_GRID, 28},      {COLOR_BORDER, 46},
-    {COLOR_ZERO, 89},  {COLOR_INACTIVE, 130}, {COLOR_MUTED, 185},
-};
-
-/* Weighted RGB brightness, scaled by 256. */
-static int brightness(rv_color color)
-{
-    return 54 * (int)(color >> 16 & 0xff) + 183 * (int)(color >> 8 & 0xff) +
-           19 * (int)(color & 0xff);
-}
-
-/* The selection tints the background toward the accent, further on a dark one. */
-static void load_colors(const struct rv_gfx *g)
-{
-    for (unsigned int i = 0; i < COLOR_ROLES; i++)
-        colors[i] = g->color(roles[i]);
-    for (unsigned int i = 0; i < sizeof greys / sizeof greys[0]; i++)
-        colors[greys[i][0]] = g->mix(colors[COLOR_BACKGROUND], colors[COLOR_TEXT], greys[i][1]);
-    int dark = brightness(colors[COLOR_BACKGROUND]) < 128 * 256;
-    colors[COLOR_SELECTION] = g->mix(colors[COLOR_BACKGROUND], colors[COLOR_CURVE], dark ? 43 : 20);
-}
-
-static void rect(const struct rv_gfx *g, int x, int y, int width, int height, int color)
-{
-    struct rv_rect r = {(int16_t)x, (int16_t)y, (int16_t)width, (int16_t)height};
-    g->fill(&r, colors[color]);
-}
-
-/* `text` in the box; a large text that does not fit falls back to the text font. */
-static void text_in(const struct rv_gfx *g, int x, int y, int width, int height, const char *text,
-                    int large, int alignment, int color)
-{
-    struct rv_rect r = {(int16_t)x, (int16_t)y, (int16_t)width, (int16_t)height};
-    uint8_t font = large && g->measure(RV_FONT_LARGE, text) <= width - 8 ? RV_FONT_LARGE
-                                                                          : RV_FONT_TEXT;
-    g->text_in(&r, font, colors[color], text, (int8_t)alignment);
-}
-
 static void compute_response(const struct rv_context *ctx)
 {
+    int extent = 60;
     editor.precut = link(ctx)->response(editor.curve, RESPONSE_POINTS);
-    editor.extent = 60;
     for (unsigned int i = 0; i < RESPONSE_POINTS; i++)
-        while (editor.curve[i] < -editor.extent || editor.curve[i] > editor.extent)
-            editor.extent *= 2;
+        while (editor.curve[i] < -extent || editor.curve[i] > extent)
+            extent *= 2;
+    editor.plot = (struct rv_plot){.left = 44,
+                                   .top = RESPONSE_TOP,
+                                   .bottom = RESPONSE_BOTTOM,
+                                   .points = RESPONSE_POINTS,
+                                   .top_value = (int16_t)extent,
+                                   .bottom_value = (int16_t)-extent};
 }
 
-static int response_y(int value)
+static void draw_response(const struct rv_context *ctx, const struct rv_canvas *c)
 {
-    int half = editor.extent / 2;
-    return RESPONSE_ZERO - (value * (RESPONSE_ZERO - RESPONSE_TOP) + (value < 0 ? -half : half)) /
-                               editor.extent;
-}
-
-static void draw_response(const struct rv_context *ctx, const struct rv_gfx *g)
-{
-    static const int ticks[] = {44, 131, 217, 304};
     static const char *const tick_labels[] = {"20", "200", "2k", "20k Hz"};
-    char value[LABEL_BYTES], scale[8];
+    char value[LABEL_BYTES], high[8], low[8];
+    const char *scale[] = {high, "0", low};
     unsigned int precut = choice(ctx, 0, PARAM_PRECUT);
     const char *title = "Precut";
-    text_in(g, 8, 3, 140, 24, "EQ response", 0, RV_ALIGN_LEFT, COLOR_TEXT);
+    rv_canvas_header(c, "EQ response", NULL, 0);
     /* With Auto, the attenuation the engine found. */
     if (precut == EQ_PRECUT_AUTO) {
         title = "Auto precut";
         precut = editor.precut + 1;
     }
     label(PARAM_PRECUT, precut, value);
-    int value_width = g->measure(RV_FONT_TEXT, value);
-    int title_width = g->measure(RV_FONT_TEXT, title);
-    text_in(g, 312 - value_width - 6 - title_width, 3, title_width, 24, title, 0, RV_ALIGN_LEFT,
-            COLOR_MUTED);
-    text_in(g, 312 - value_width, 3, value_width, 24, value, 0, RV_ALIGN_RIGHT, COLOR_TEXT);
-    for (unsigned int i = 0; i < 4; i++) {
-        rect(g, ticks[i], RESPONSE_TOP, 1, RESPONSE_BOTTOM - RESPONSE_TOP + 1, COLOR_GRID);
-        text_in(g, i == 3 ? 271 : ticks[i] - 21, 192, i == 3 ? 49 : 42, 22, tick_labels[i], 0,
-                RV_ALIGN_CENTER, COLOR_MUTED);
-    }
-    rect(g, RESPONSE_LEFT, RESPONSE_TOP, RESPONSE_POINTS, 1, COLOR_GRID);
-    rect(g, RESPONSE_LEFT, RESPONSE_BOTTOM, RESPONSE_POINTS, 1, COLOR_GRID);
-    rect(g, RESPONSE_LEFT, RESPONSE_ZERO, RESPONSE_POINTS, 1, COLOR_ZERO);
-    rv_format(scale, sizeof scale, "+%u", (unsigned int)editor.extent / 10);
-    text_in(g, 0, RESPONSE_TOP - 9, 38, 18, scale, 0, RV_ALIGN_CENTER, COLOR_MUTED);
-    text_in(g, 0, RESPONSE_ZERO - 9, 38, 18, "0", 0, RV_ALIGN_CENTER, COLOR_MUTED);
-    scale[0] = '-';
-    text_in(g, 0, RESPONSE_BOTTOM - 9, 38, 18, scale, 0, RV_ALIGN_CENTER, COLOR_MUTED);
-    int previous = response_y(editor.curve[0]);
-    for (unsigned int i = 0; i < RESPONSE_POINTS; i++) {
-        int y = response_y(editor.curve[i]);
-        int top = y < previous ? y : previous;
-        int bottom = y > previous ? y : previous;
-        rect(g, RESPONSE_LEFT + (int)i, top, 1, bottom - top + 1, COLOR_CURVE);
-        previous = y;
-    }
+    int right = c->width - 8;
+    int value_width = c->gfx->measure(RV_FONT_TEXT, value);
+    int title_width = c->gfx->measure(RV_FONT_TEXT, title);
+    rv_canvas_text(c, right - value_width - 6 - title_width, 3, title_width, 24, title, 0,
+                   RV_ALIGN_LEFT, RV_CANVAS_MUTED);
+    rv_canvas_text(c, right - value_width, 3, value_width, 24, value, 0, RV_ALIGN_RIGHT,
+                   RV_CANVAS_TEXT);
+    rv_format(high, sizeof high, "+%u", (unsigned int)editor.plot.top_value / 10);
+    rv_format(low, sizeof low, "-%u", (unsigned int)editor.plot.top_value / 10);
+    rv_plot_ticks(c, &editor.plot, tick_labels, 4, TICK_TOP, TICK_HEIGHT);
+    rv_plot_grid(c, &editor.plot, scale, 3);
+    rv_canvas_rect(c, editor.plot.left, RESPONSE_ZERO, RESPONSE_POINTS, 1, RV_CANVAS_ZERO);
+    rv_plot_curve(c, &editor.plot, editor.curve, 1, RV_CANVAS_ACCENT);
 }
 
-static void draw_bands(const struct rv_context *ctx, const struct rv_gfx *g)
+static void draw_bands(const struct rv_context *ctx, const struct rv_canvas *c)
 {
-    rect(g, BAND_LEFT, BAND_TOP, BAND_WIDTH * EQ_BANDS, 1, COLOR_GRID);
-    rect(g, BAND_LEFT, BAND_BOTTOM, BAND_WIDTH * EQ_BANDS, 1, COLOR_GRID);
-    rect(g, BAND_LEFT + 2 + editor.band * BAND_WIDTH, 4, BAND_WIDTH - 4, TYPE_TOP - 7,
-         COLOR_SELECTION);
-    rect(g, BAND_LEFT, BAND_ZERO, BAND_WIDTH * EQ_BANDS, 1, COLOR_ZERO);
-    text_in(g, 2, BAND_TOP - 9, 34, 18, "+12", 0, RV_ALIGN_CENTER, COLOR_MUTED);
-    text_in(g, 2, BAND_ZERO - 9, 34, 18, "0", 0, RV_ALIGN_CENTER, COLOR_MUTED);
-    text_in(g, 2, BAND_BOTTOM - 9, 34, 18, "-12", 0, RV_ALIGN_CENTER, COLOR_MUTED);
+    rv_canvas_rect(c, BAND_LEFT, BAND_TOP, BAND_WIDTH * EQ_BANDS, 1, RV_CANVAS_GRID);
+    rv_canvas_rect(c, BAND_LEFT, BAND_BOTTOM, BAND_WIDTH * EQ_BANDS, 1, RV_CANVAS_GRID);
+    rv_canvas_rect(c, BAND_LEFT + 2 + editor.band * BAND_WIDTH, 4, BAND_WIDTH - 4,
+                   INLINE_TOP - 7, RV_CANVAS_SELECTION);
+    rv_canvas_rect(c, BAND_LEFT, BAND_ZERO, BAND_WIDTH * EQ_BANDS, 1, RV_CANVAS_ZERO);
+    rv_canvas_text(c, 2, BAND_TOP - 9, 34, 18, "+12", 0, RV_ALIGN_CENTER, RV_CANVAS_MUTED);
+    rv_canvas_text(c, 2, BAND_ZERO - 9, 34, 18, "0", 0, RV_ALIGN_CENTER, RV_CANVAS_MUTED);
+    rv_canvas_text(c, 2, BAND_BOTTOM - 9, 34, 18, "-12", 0, RV_ALIGN_CENTER, RV_CANVAS_MUTED);
     for (int band = 0; band < EQ_BANDS; band++) {
         char frequency[LABEL_BYTES];
         int x = BAND_LEFT + BAND_WIDTH / 2 + band * BAND_WIDTH;
@@ -263,76 +166,57 @@ static void draw_bands(const struct rv_context *ctx, const struct rv_gfx *g)
                 eq_gain_tenths(choice(ctx, band, PARAM_GAIN)) * (BAND_BOTTOM - BAND_ZERO) / 120;
         int selected = band == editor.band;
         int off = choice(ctx, band, PARAM_TYPE) == EQ_OFF;
-        int color = off ? COLOR_BORDER : selected ? COLOR_CURVE : COLOR_INACTIVE;
-        rect(g, x - 8, BAND_TOP, 16, BAND_BOTTOM - BAND_TOP, COLOR_TRACK);
-        rect(g, x - 16, BAND_ZERO, 32, 1, COLOR_ZERO);
+        uint8_t color = off        ? RV_CANVAS_BORDER
+                        : selected ? RV_CANVAS_ACCENT
+                                   : RV_CANVAS_INACTIVE;
+        rv_canvas_rect(c, x - 8, BAND_TOP, 16, BAND_BOTTOM - BAND_TOP, RV_CANVAS_TRACK);
+        rv_canvas_rect(c, x - 16, BAND_ZERO, 32, 1, RV_CANVAS_ZERO);
         int top = y < BAND_ZERO ? y : BAND_ZERO;
         int height = y < BAND_ZERO ? BAND_ZERO - y : y - BAND_ZERO;
         if (height)
-            rect(g, x - 8, top, 16, height, color);
-        rect(g, x - 12, y - 3, 24, 6, color);
-        text_in(g, x - 25, TYPE_TOP - 25, 50, 22,
-                off ? "Off" : label(PARAM_FREQUENCY, choice(ctx, band, PARAM_FREQUENCY), frequency),
-                0, RV_ALIGN_CENTER, selected ? COLOR_CURVE : COLOR_MUTED);
+            rv_canvas_rect(c, x - 8, top, 16, height, color);
+        rv_canvas_rect(c, x - 12, y - 3, 24, 6, color);
+        rv_canvas_text(c, x - 25, INLINE_TOP - 25, 50, 22,
+                       off ? "Off"
+                           : label(PARAM_FREQUENCY, choice(ctx, band, PARAM_FREQUENCY), frequency),
+                       0, RV_ALIGN_CENTER, selected ? RV_CANVAS_ACCENT : RV_CANVAS_MUTED);
     }
 }
 
-static void draw_parameters(const struct rv_context *ctx, const struct rv_gfx *g, int width)
+static void draw_parameters(const struct rv_context *ctx, const struct rv_canvas *c)
 {
-    rect(g, 0, TYPE_TOP - 1, width, 1, COLOR_BORDER);
-    rect(g, 0, PARAM_TOP - 1, width, 1, COLOR_BORDER);
-    rect(g, CANVAS_WIDTH / 2, TYPE_TOP, 1, TYPE_HEIGHT, COLOR_BORDER);
-    rect(g, CANVAS_WIDTH / 3, PARAM_TOP, 1, PARAM_HEIGHT, COLOR_BORDER);
-    rect(g, 2 * CANVAS_WIDTH / 3, PARAM_TOP, 1, PARAM_HEIGHT, COLOR_BORDER);
+    char text[PARAM_COUNT][LABEL_BYTES];
+    const char *values[PARAM_COUNT];
+    uint8_t states[PARAM_COUNT];
     for (int parameter = 0; parameter < PARAM_COUNT; parameter++) {
-        char value[LABEL_BYTES];
-        int inline_row = parameter < PARAM_GAIN;
-        int left = inline_row ? parameter * CANVAS_WIDTH / 2
-                              : (parameter - PARAM_GAIN) * CANVAS_WIDTH / 3;
-        int width = inline_row ? CANVAS_WIDTH / 2
-                               : (parameter - PARAM_GAIN + 1) * CANVAS_WIDTH / 3 - left;
-        int top = inline_row ? TYPE_TOP : PARAM_TOP;
-        int height = inline_row ? TYPE_HEIGHT : PARAM_HEIGHT;
-        int active = editor.mode != MODE_BAND && parameter == editor.parameter;
-        int editing = active && editor.mode == MODE_EDIT;
-        if (active) {
-            rect(g, left, top, width, height, editing ? COLOR_FILL : COLOR_CURVE);
-            if (!editing)
-                rect(g, left + 2, top + 2, width - 4, height - 4, COLOR_SELECTION);
-        }
-        int title_color = editing ? COLOR_ON_FILL : COLOR_MUTED;
-        int value_color = editing ? COLOR_ON_FILL : COLOR_TEXT;
-        const char *text = label(parameter, choice(ctx, editor.band, parameter), value);
-        if (inline_row) {
-            text_in(g, left + 12, TYPE_TOP, width - 24, TYPE_HEIGHT, titles[parameter], 0,
-                    RV_ALIGN_LEFT, title_color);
-            text_in(g, left + 12, TYPE_TOP, width - 24, TYPE_HEIGHT, text, 0, RV_ALIGN_RIGHT,
-                    value_color);
-        } else {
-            text_in(g, left, PARAM_TOP + 5, width, 16, titles[parameter], 0, RV_ALIGN_CENTER,
-                    title_color);
-            text_in(g, left, PARAM_TOP + 21, width, 22, text, 1, RV_ALIGN_CENTER, value_color);
-        }
+        int active = editor.input.depth != DEPTH_BAND && parameter == editor.parameter;
+        values[parameter] = label(parameter, choice(ctx, editor.band, parameter), text[parameter]);
+        states[parameter] = !active                              ? RV_CELL_IDLE
+                            : editor.input.depth == DEPTH_EDIT ? RV_CELL_EDITING
+                                                               : RV_CELL_SELECTED;
     }
+    rv_canvas_fields(c, INLINE_TOP, INLINE_HEIGHT, titles, values, states, INLINE_COUNT);
+    rv_canvas_cells(c, CELL_TOP, CELL_HEIGHT, titles + INLINE_COUNT, values + INLINE_COUNT,
+                    states + INLINE_COUNT, PARAM_COUNT - INLINE_COUNT);
 }
 
 static void draw(const struct rv_context *ctx, const struct rv_gfx *g, int width, int height)
 {
-    load_colors(g);
-    rect(g, 0, 0, width, height, COLOR_BACKGROUND);
+    struct rv_canvas c;
+    rv_canvas_begin(&c, g, width, height);
     if (editor.response) {
-        draw_response(ctx, g);
+        draw_response(ctx, &c);
         return;
     }
-    draw_bands(ctx, g);
-    draw_parameters(ctx, g, width);
+    draw_bands(ctx, &c);
+    draw_parameters(ctx, &c);
 }
 
 static void wheel(const struct rv_context *ctx, int delta)
 {
-    if (editor.mode == MODE_BAND) {
+    if (editor.input.depth == DEPTH_BAND) {
         editor.band = clamp(editor.band + delta, 0, EQ_BANDS - 1);
-    } else if (editor.mode == MODE_PARAMETER) {
+    } else if (editor.input.depth == DEPTH_PARAMETER) {
         editor.parameter = clamp(editor.parameter + delta, 0, PARAM_COUNT - 1);
     } else {
         unsigned int at = slot(editor.band, editor.parameter);
@@ -355,26 +239,19 @@ static int input(const struct rv_context *ctx, const struct rv_input *input)
         }
     } else if (editor.response) {
         return 1;
-    } else if (input->kind == RV_INPUT_WHEEL) {
-        wheel(ctx, input->delta);
-    } else if (input->button == RV_BUTTON_CENTER) {
-        if (input->kind == RV_INPUT_RELEASE)
-            return 1;
-        save(ctx);
-        editor.mode = editor.mode == MODE_PARAMETER ? MODE_EDIT : MODE_PARAMETER;
-    } else if (input->button == RV_BUTTON_MENU) {
-        if (input->kind == RV_INPUT_RELEASE) {
-            int taken = editor.menu_taken;
-            editor.menu_taken = 0;
-            return taken;
-        }
-        if (editor.mode == MODE_BAND)
-            return 0; /* the system pops the screen */
-        save(ctx);
-        editor.mode--;
-        editor.menu_taken = 1;
     } else {
-        return 0; /* playback keys */
+        switch (rv_editor_input(&editor.input, input)) {
+        case RV_EDITOR_IGNORED:
+            return 0;
+        case RV_EDITOR_CONSUMED:
+            return 1;
+        case RV_EDITOR_WHEEL:
+            wheel(ctx, input->delta);
+            break;
+        default:
+            save(ctx);
+            break;
+        }
     }
     api->ui_invalidate(self);
     return 1;
@@ -384,6 +261,7 @@ static void opened(const struct rv_context *ctx)
 {
     (void)ctx;
     memset(&editor, 0, sizeof editor);
+    editor.input.depths = DEPTHS;
 }
 
 static void closed(const struct rv_context *ctx)

@@ -4,7 +4,7 @@ description = "Browse the chapters of a podcast or iTunes U episode, or of the p
 version = "0.1.0"
 author = "RevolaOS"
 license = "GPL-3.0-only"
-api = "1.36"
+api = "1.42"
 enabled = true
 stability = "beta"
 

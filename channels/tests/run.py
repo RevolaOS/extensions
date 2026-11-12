@@ -81,9 +81,15 @@ def label_tests(dll):
     def labels(name, count):
         return [s.decode() for s in (ctypes.c_char_p * count).in_dll(dll, name)]
 
+    label = dll.channels_label
+    label.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p]
+    label.restype = ctypes.c_char_p
+    out = ctypes.create_string_buffer(8)
     assert labels("mode_labels", 7) == MODES
-    assert labels("width_labels", 51) == [f"{5 * i} %" for i in range(51)]
-    assert labels("width_labels", 51)[20] == "100 %"
+    assert [label(0, i, out).decode() for i in range(7)] == MODES
+    widths = [label(1, i, out).decode() for i in range(51)]
+    assert widths == [f"{5 * i} %" for i in range(51)]
+    assert widths[20] == "100 %"
 
 
 def truncate(value):
@@ -206,7 +212,7 @@ def process_tests(dll):
 sdk = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="channels-tests-") as name:
     work = Path(name)
-    sources = [root / "host.c"] + [
+    sources = [root / "host.c", sdk / "rv_libc.c"] + [
         root.parent / name for name in ("channels.c", "labels.c", "modes.c")
     ]
     dll = build(work, "channels.so", sources)

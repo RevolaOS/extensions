@@ -1,12 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-#ifndef LABELS_H
-#define LABELS_H
+#ifndef CHANNELS_LABELS_H
+#define CHANNELS_LABELS_H
 
 #include "modes.h"
 #include "shared.h"
 
-/* The widths as the editor shows them, by index. */
-extern const char *const width_labels[WIDTH_LABELS];
+/* The editor's values in wheel order. */
+enum { PARAM_MODE, PARAM_WIDTH, PARAM_COUNT };
+
+enum { LABEL_BYTES = 6 }; /* "250 %" */
+
+/* Value `index` of `parameter` as the editor shows it: a constant, or
+ * formatted into `out`. */
+const char *channels_label(int parameter, int index, char out[LABEL_BYTES]);
 
 #endif

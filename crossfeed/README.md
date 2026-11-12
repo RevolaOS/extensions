@@ -33,4 +33,4 @@ Enabling it adds the Crossfeed row after Sound Check, with the mode as its capti
 | Default | off |
 | Memory | image only |
 | Settings | mode, the four shape values and the precut |
-| Minimum SDK | 1.40 |
+| Minimum SDK | 1.42 |
