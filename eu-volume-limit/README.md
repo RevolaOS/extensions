@@ -1,20 +1,19 @@
 # EU Volume Limit
 
-Changes Apple's EU volume rules on 2.0.5. Bit 0 and bit 7 are Apple's region flags; where the table says bit 7, Apple also accepts a stored override. iPods with neither flag run at 256 without EU rules and are unchanged.
+iPods sold in the EU cap the volume below the rest of the world, warn when it goes up, and turn it back down after a restart or after hours of listening. The extension gives an EU iPod the behaviour of a non-EU one: with the EU Volume Limit switch in Settings > Volume Limit off, the volume goes 15% higher than before; with it on, the EU cap stays. There is no warning and nothing is lowered behind your back. iPods that never had the EU rules are unchanged.
 
-| | Stock | With the extension |
+| | Stock EU iPod | With the extension |
 |---|---|---|
-| EU Volume Limit switch in Settings > Volume Limit | bit 7 | bit 0 or bit 7 |
-| Ceiling with the switch off | 222 | 256, 15% higher on Apple's scale |
+| Ceiling with the switch off | 222 | 256 on Apple's scale, 15% higher |
 | Ceiling with the switch on | 168 | 168 |
 | Default volume limit | 222 | 256; a saved limit is kept |
-| High-volume warning | bit 7 | never |
-| Saved volume clamped at startup | bit 7 | never |
-| Volume lowered after 20 hours of listening | bit 7 | never |
+| High-volume warning | yes | never |
+| Saved volume lowered at startup | yes | never |
+| Volume lowered after 20 hours of listening | yes | never |
 
-An iPod with bit 0 alone is held at 222 in stock, with no switch to change it.
+Apple decides by two region flags, bit 0 and bit 7; where it checks bit 7 it also accepts a stored override. Stock shows the switch only for bit 7 and holds a bit-0 iPod at 222 with no switch at all; the extension shows the switch for either flag. The extension patches seven constants in 2.0.5 and stores nothing of its own.
 
-Disabled, Apple's behaviour returns at once, except the startup clamp, which returns at the next boot. The current volume and the saved limit stay as they are.
+Turned off, Apple's behaviour returns at once, except the startup clamp, which returns at the next boot. The current volume and the saved limit stay as they are.
 
 | | |
 |---|---|

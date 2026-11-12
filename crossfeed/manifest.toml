@@ -1,6 +1,6 @@
 id = "crossfeed"
 name = "Crossfeed"
-description = "Feed a filtered part of each channel into the other so hard-panned stereo is easier on headphones, with Rockbox's Simple and Custom modes."
+description = "Blends a little of each channel into the other so hard-panned stereo is easier on headphones. A simple mode or a custom filter."
 version = "0.1.0"
 author = "RevolaOS"
 note = "Ported from Rockbox"

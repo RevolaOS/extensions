@@ -1,6 +1,6 @@
 id = "channels"
 name = "Channels"
-description = "Narrow or widen the stereo image, or play Mono, one channel in both ears, Karaoke or swapped channels, with Rockbox's channel modes."
+description = "Narrow or widen the stereo image, or play mono, one channel in both ears, karaoke or swapped channels."
 version = "0.1.0"
 author = "RevolaOS"
 note = "Ported from Rockbox"
