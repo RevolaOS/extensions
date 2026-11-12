@@ -3,6 +3,7 @@ __pycache__/
 .ruff_cache/
 target/
 build/
+dist/
 .build/
 vendor/
 inputs/

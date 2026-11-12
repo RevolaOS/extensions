@@ -23,10 +23,11 @@ First-party RevolaOS extensions. One directory per extension, each with its own 
 ## Build
 
 ```sh
-make -C <directory> SDK=/path/to/revola-sdk
+make -C <directory> SDK=/path/to/revola-sdk   # one extension, into <directory>/build/<id>.rvx
+make SDK=/path/to/revola-sdk                  # every extension, into dist/<id>.rvx
 ```
 
-`<directory>/build/<id>.rvx` is what goes to `/Revola/Extensions/<id>.rvx`. Tests, icons and the SDK are in [Building and testing](docs/building.md).
+`<id>.rvx` is what goes to `/Revola/Extensions/<id>.rvx`. Tests, icons and the SDK are in [Building and testing](docs/building.md).
 
 ## Documentation
 

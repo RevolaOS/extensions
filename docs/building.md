@@ -8,7 +8,7 @@ Every extension builds against an unpacked revola SDK, from the [revola releases
 make -C <directory> SDK=/path/to/revola-sdk
 ```
 
-The result is `<directory>/build/<id>.rvx`. Copy it to `/Revola/Extensions/<id>.rvx` on the iPod, or onto an emulator disk with `ipodvm disk --copy`.
+The result is `<directory>/build/<id>.rvx`. Copy it to `/Revola/Extensions/<id>.rvx` on the iPod, or onto an emulator disk with `ipodvm disk --copy`. `make SDK=...` at the top level builds every extension into `dist/<id>.rvx`, which is what a release packages; `make check SDK=...` there runs every host test suite.
 
 Requirements are those of the SDK: GNU make, Rockbox's `arm-elf-eabi-` GCC 9.5.0 and Python 3.11+.
 
