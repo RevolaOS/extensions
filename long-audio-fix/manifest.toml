@@ -1,0 +1,14 @@
+id = "long-audio-fix"
+name = "Long Audio Fix"
+description = "AAC and Apple Lossless files longer than 13.5 hours (12.4 hours at 48 kHz) play to the end instead of stopping partway."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+note = "Same fix as RepriseOS"
+api = "1.43"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
