@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Run the host tests with a staged SDK: python3 tests/run.py SDK."""
 
+import copy
 import ctypes
 import math
 import subprocess
 import sys
 import tempfile
+from itertools import pairwise
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
@@ -320,6 +322,20 @@ def sine(count, hz, rate, amplitude):
     ]
 
 
+FADE = 128
+
+
+def faded(old, new, lead=0):
+    """What rv_fade plays after a take: old alone for `lead` frames, then old
+    blended into new over FADE frames at weights 1 to FADE, floor-shifted as the
+    ARM does, then new."""
+    out = []
+    for i, (a, b) in enumerate(zip(old, new)):
+        weight = min(max(i - lead + 1, 0), FADE)
+        out.append(tuple((x * (FADE - weight) + y * weight) >> 7 for x, y in zip(a, b)))
+    return out
+
+
 def process_tests(dll):
     publish = dll.compressor_publish
     publish.argtypes = [ctypes.POINTER(Set)]
@@ -336,65 +352,128 @@ def process_tests(dll):
     design.restype = None
     count = 512
 
-    def run(frames, rate):
-        buffer = (ctypes.c_int16 * (2 * len(frames)))(
-            *[s for frame in frames for s in frame]
-        )
-        process(buffer, len(frames), rate)
-        return [(buffer[2 * i], buffer[2 * i + 1]) for i in range(len(frames))]
-
     def designed(chosen, rate):
         d = Design()
         design(d, chosen, rate)
         return d
 
+    class Player:
+        """One instance as the engine keeps it: a set at a rate over a Reference,
+        or a pass-through while Off."""
+
+        def __init__(self, rate, chosen):
+            self.rate, self.chosen, self.on = rate, chosen, chosen.threshold != 0
+            self.reference = Reference(rate)
+            self.design = designed(chosen, rate) if self.on else None
+
+        def play(self, frames):
+            return (
+                self.reference.process(self.design, frames) if self.on else list(frames)
+            )
+
+    # What plays and, after a take at the same rate, what fades out and for
+    # how many frames it plays alone first.
+    players = {"new": Player(44100, Set(threshold=0)), "old": None, "lead": 0}
+
+    def switch(chosen, rate=44100):
+        """Publishes a set. At the same rate the engine fades from what played,
+        and new values while on keep the state; turning on fills the new delay
+        line first; a new rate starts over."""
+        publish(chosen)
+        old, new = players["new"], Player(rate, chosen)
+        if rate == old.rate and old.on and new.on:
+            new.reference = copy.deepcopy(old.reference)
+        players["new"] = new
+        players["old"] = old if rate == old.rate else None
+        players["lead"] = new.reference.length if new.on and not old.on else 0
+
+    def expected(frames):
+        new = players["new"].play(frames)
+        old, players["old"] = players["old"], None
+        return new if old is None else faded(old.play(frames), new, players["lead"])
+
+    def run(frames, rate, *splits):
+        """Processes the frames in one buffer, or in buffers cut at the splits.
+        A rate the engine has not seen starts its state over without a fade."""
+        if rate != players["new"].rate:
+            players["new"] = Player(rate, players["new"].chosen)
+            players["old"] = None
+        buffer = (ctypes.c_int16 * (2 * len(frames)))(
+            *[s for frame in frames for s in frame]
+        )
+        edges = [0, *splits, len(frames)]
+        for first, last in pairwise(edges):
+            process(
+                ctypes.cast(ctypes.byref(buffer, 4 * first), process.argtypes[0]),
+                last - first,
+                rate,
+            )
+        return [(buffer[2 * i], buffer[2 * i + 1]) for i in range(len(frames))]
+
+    def play(frames, rate, *splits):
+        """Runs the frames and checks them against the model, returning them."""
+        got = run(frames, rate, *splits)
+        assert got == expected(frames), (rate, splits)
+        return got
+
     def interrupts():
         dll.test_irq_calls.restype = ctypes.c_uint32
         return dll.test_irq_calls()
 
+    def turned_off():
+        """Off, with the fade out of the delayed samples over."""
+        switch(Set(threshold=0))
+        play(noise(FADE, 1), 44100)
+
     # Off leaves the stream alone.
-    publish(Set(threshold=0))
+    switch(Set(threshold=0))
     frames = noise(count, 1)
-    assert run(frames, 44100) == frames
+    assert play(frames, 44100) == frames
     assert interrupts() == 2
 
-    # On at three rates, bit for bit against the model across blocks; the
-    # first look-ahead's worth of frames is the silence the delay line held.
+    # On at three rates, bit for bit against the model across blocks. The
+    # first look-ahead's worth of frames is the silence the delay line held;
+    # turning on at the rate that plays hides it under the input, and fades in
+    # the delayed samples after it.
     chosen = Set(threshold=-12, makeup=1, ratio=1, knee=1, attack=5, release=500)
     for rate in (44100, 48000, 8000):
-        publish(chosen)
-        d = designed(chosen, rate)
-        reference = Reference(rate)
+        switch(chosen, rate)
+        length = players["new"].reference.length
         for block in range(3):
             frames = noise(count, block + rate)
-            got = run(frames, rate)
-            assert got == reference.process(d, frames), (rate, block)
-            if block == 0:
-                assert all(frame == (0, 0) for frame in got[: reference.length])
-                assert got[reference.length] != (0, 0)
+            got = play(frames, rate)
+            if block == 0 and rate == 44100:
+                assert got[:length] == frames[:length]
+            elif block == 0:
+                assert all(frame == (0, 0) for frame in got[:length])
+                assert got[length] != (0, 0)
 
-    # New values keep the state; Off and on again, or a new rate, start over.
-    publish(chosen)
-    d = designed(chosen, 44100)
-    reference = Reference(44100)
-    frames = noise(count, 20)
-    assert run(frames, 44100) == reference.process(d, frames)
+    # New values keep the state and fade in; Off fades the delayed samples out
+    # into the input; on again fills the line, then fades in; a new rate during
+    # a fade ends it and starts over.
+    switch(chosen)
+    play(noise(count, 20), 44100)
     louder = Set(threshold=-6, makeup=0, ratio=4, knee=0, attack=0, release=100)
-    publish(louder)
-    d = designed(louder, 44100)
-    frames = noise(count, 21)
-    assert run(frames, 44100) == reference.process(d, frames)
-    publish(Set(threshold=0))
+    switch(louder)
+    play(noise(count, 21), 44100)
+    switch(Set(threshold=0))
     frames = noise(count, 22)
-    assert run(frames, 44100) == frames
-    publish(louder)
-    reference = Reference(44100)
-    frames = noise(count, 23)
-    assert run(frames, 44100) == reference.process(d, frames)
-    d = designed(louder, 32000)
-    reference = Reference(32000)
-    frames = noise(count, 24)
-    assert run(frames, 32000) == reference.process(d, frames)
+    got = play(frames, 44100)
+    assert got[FADE:] == frames[FADE:] and got[:FADE] != frames[:FADE]
+    switch(louder)
+    play(noise(64, 23), 44100)
+    play(noise(count, 24), 32000)
+
+    # The lead and the fade span buffer edges and end after their frames
+    # whatever their size; a set taken during a fade restarts the fade from
+    # the set that plays.
+    turned_off()
+    switch(chosen, 32000)
+    play(noise(count, 25), 32000, 17, 100, 300)
+    switch(louder, 32000)
+    play(noise(64, 26), 32000)
+    switch(chosen, 32000)
+    play(noise(count, 27), 32000)
 
     # Attack 0 ms, every ratio and both knees: the model agrees at the edges.
     for ratio in range(5):
@@ -402,36 +481,28 @@ def process_tests(dll):
             chosen = Set(
                 threshold=-24, makeup=1, ratio=ratio, knee=knee, attack=0, release=1000
             )
-            publish(Set(threshold=0))
-            run(noise(8, 1), 44100)
-            publish(chosen)
-            d = designed(chosen, 44100)
-            reference = Reference(44100)
+            turned_off()
+            switch(chosen)
             frames = noise(count, 30 + ratio) + noise(count, 40 + ratio, 6)
-            assert run(frames, 44100) == reference.process(d, frames), (ratio, knee)
+            play(frames, 44100)
 
     # A full-scale tone above a Limit threshold comes out well below full scale.
     chosen = Set(threshold=-24, makeup=0, ratio=4, knee=0, attack=0, release=100)
-    publish(Set(threshold=0))
-    run(noise(8, 1), 44100)
-    publish(chosen)
+    turned_off()
+    switch(chosen)
     for _ in range(10):
-        got = run(sine(4410, 1000, 44100, 32767), 44100)
+        got = play(sine(4410, 1000, 44100, 32767), 44100)
     peak = max(abs(s) for frame in got for s in frame)
     assert 0 < peak < 0.3 * 32767, peak
 
     # Auto makeup over a quiet start then full scale: the output saturates
     # rather than wraps, and still matches the model.
     chosen = Set(threshold=-24, makeup=1, ratio=4, knee=1, attack=30, release=500)
-    publish(Set(threshold=0))
-    run(noise(8, 1), 44100)
-    publish(chosen)
-    d = designed(chosen, 44100)
-    reference = Reference(44100)
+    turned_off()
+    switch(chosen)
     frames = noise(count, 50, 8) + noise(count, 51)
-    got = run(frames, 44100)
-    assert got == reference.process(d, frames)
-    assert reference.clamped > 0
+    got = play(frames, 44100)
+    assert players["new"].reference.clamped > 0
     assert all(-32768 <= s <= 32767 for frame in got for s in frame)
 
 
