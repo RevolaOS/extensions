@@ -131,7 +131,7 @@ static const struct rv_setting settings[] = {
 };
 
 static const struct rv_menu_entry entries[] = {
-    RV_MENU_ENTRY(RV_MENU_SETTINGS, RV_SETTINGS_EQ, RV_ROW_ACTION("Custom EQ", open_editor),
+    RV_MENU_ENTRY(RV_MENU_SETTINGS, RV_SETTINGS_EQ, RV_ROW_ACTION("Edit EQ", open_editor),
                   .caption = "Adjust your sound", .bitmap = RV_BITMAP("settings-eq"),
                   .shown_by = KEY_CUSTOM_SHOWN),
 };
