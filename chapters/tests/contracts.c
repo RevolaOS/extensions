@@ -26,7 +26,7 @@ uint32_t rv_format_duration(char *out, uint32_t capacity, uint32_t seconds)
 static int strings_live;
 struct NativeString *NativeString_InitEmpty(struct NativeString *s)
 {
-    FIELD(s, 0, const char *) = "";
+    RV_FIELD(s, 0, const char *) = "";
     strings_live++;
     return s;
 }
@@ -34,12 +34,12 @@ struct NativeString *NativeString_Destroy(struct NativeString *s)
 {
     assert(strings_live > 0);
     strings_live--;
-    FIELD(s, 0, const char *) = NULL;
+    RV_FIELD(s, 0, const char *) = NULL;
     return s;
 }
 char *NativeString_GetUtf8(struct NativeString *s)
 {
-    return (char *)FIELD(s, 0, const char *);
+    return (char *)RV_FIELD(s, 0, const char *);
 }
 
 /* The library: one record whose chapters, duration, validity and kind the
@@ -64,9 +64,9 @@ static uint32_t get_duration(const void *i)
 static void view(void *i)
 {
     memset(i, 0, MediaItem_bytes);
-    FIELD(i, 0, void *) = methods;
-    FIELD(i, MediaItem_record, void *) = track_record;
-    FIELD(i, MediaItem_generation, uint32_t) = fake.generation;
+    RV_FIELD(i, 0, void *) = methods;
+    RV_FIELD(i, MediaItem_record, void *) = track_record;
+    RV_FIELD(i, MediaItem_generation, uint32_t) = fake.generation;
 }
 
 int MediaItem_IsValid(struct MediaItem *i)
@@ -97,7 +97,7 @@ int MediaItem_GetChapterTitleAt(struct MediaItem *i, int position_ms, struct Nat
         if (fake.starts[n] <= (uint32_t)position_ms) {
             if (!fake.titles[n])
                 return 0;
-            FIELD(out, 0, const char *) = fake.titles[n];
+            RV_FIELD(out, 0, const char *) = fake.titles[n];
             return 1;
         }
     return 0;
@@ -198,7 +198,7 @@ void MediaPlayer_Stop(void *p)
 void *CppString_Init(void *s, const char *text)
 {
     assert(!strcmp(text, "NowPlayingStartTime"));
-    FIELD(s, 0, const char *) = text;
+    RV_FIELD(s, 0, const char *) = text;
     keys_live++;
     return s;
 }
@@ -210,7 +210,7 @@ void CppString_Destroy(void *s)
 void NavigatorProperties_SetInteger(void *properties, void *key, const uint32_t *value)
 {
     assert(properties == NavigatorProperties && keys_live == 1 && stops == plays + 1);
-    assert(!strcmp(FIELD(key, 0, const char *), "NowPlayingStartTime"));
+    assert(!strcmp(RV_FIELD(key, 0, const char *), "NowPlayingStartTime"));
     start_time = *value;
 }
 void MediaListController_PlayRow(void *controller, int row, int mode, uint32_t shuffle)
@@ -234,7 +234,7 @@ static void reset(void)
     fake.titles[2] = "Final Hour";
     methods[MediaItem_duration_method / sizeof(void *)] = (uintptr_t)get_duration;
     model_methods[SongModel_get_item_method / sizeof(void *)] = (uintptr_t)get_item;
-    FIELD(list, MediaListController_model, void *) = model;
+    RV_FIELD(list, MediaListController_model, void *) = model;
     view(item);
     playing = 1;
     position = 0;
@@ -278,7 +278,7 @@ int main(void)
     fake.count = 0x80000000u;
     assert(chapters_count(item) == 0);
     reset();
-    FIELD(item, MediaItem_record, void *) = NULL;
+    RV_FIELD(item, MediaItem_record, void *) = NULL;
     assert(chapters_count(item) == 0);
 
     /* Now Playing: the current chapter is highlighted, a chosen one seeks

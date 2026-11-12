@@ -25,9 +25,9 @@ struct MediaItem *MediaItem_InitFromRecord(struct MediaItem *i, void *record, ui
 {
     (void)flags;
     memset(i, 0, MediaItem_bytes);
-    FIELD(i, 0, void *) = methods;
-    FIELD(i, MediaItem_record, void *) = record;
-    FIELD(i, MediaItem_generation, uint32_t) = generation;
+    RV_FIELD(i, 0, void *) = methods;
+    RV_FIELD(i, MediaItem_record, void *) = record;
+    RV_FIELD(i, MediaItem_generation, uint32_t) = generation;
     return i;
 }
 void MediaItem_Destroy(struct MediaItem *i) { (void)i; }
@@ -38,7 +38,7 @@ int MediaPlayer_GetCurrentItem(void *p, struct MediaItem *i)
 {
     assert(p == player && locked);
     MediaItem_InitFromRecord(i, same == 2 ? &other_record : &marker, 0);
-    FIELD(i, MediaItem_generation, uint32_t) += !same;
+    RV_FIELD(i, MediaItem_generation, uint32_t) += !same;
     return 1;
 }
 uint32_t MediaPlayer_GetPosition(void *p) { assert(p == player && locked); return live; }
@@ -62,7 +62,7 @@ void *ResourceService_GetBitmap(void *service, uint32_t id)
 void Bitmap_LoadResource(void *b, const void *resource, uint32_t a, uint32_t flags)
 {
     assert(resource && !locked && !a && !flags);
-    FIELD(b, Bitmap_pixels, const uint8_t *) = (const uint8_t *)resource + BMap_payload;
+    RV_FIELD(b, Bitmap_pixels, const uint8_t *) = (const uint8_t *)resource + BMap_payload;
 }
 static void *allocate(rv_extension_handle h, uint32_t bytes)
 {
@@ -93,9 +93,9 @@ static void put_word(uint8_t *p, uint32_t value) { memcpy(p, &value, 4); }
 static int render_on(void *m, uint32_t prop, uint32_t row)
 {
     uintptr_t out;
-    FIELD(player, MediaPlayer_current_track, void *) = current ? &marker : NULL;
+    RV_FIELD(player, MediaPlayer_current_track, void *) = current ? &marker : NULL;
     assert(property((uintptr_t)m, Property_Drawable, prop, row, NULL, &out) == (uint32_t)native_result);
-    return progress_bitmap_owns(FIELD((void *)out, Bitmap_pixels, void *));
+    return progress_bitmap_owns(RV_FIELD((void *)out, Bitmap_pixels, void *));
 }
 static int render(void) { return render_on(model, Property_PodcastStatus, 2); }
 /* Check decoded pixels against the semicircle geometry. */
@@ -175,10 +175,10 @@ int main(void)
     have_player = 0; assert(!render()); have_player = 1;
     int before = item_calls;
     assert(!render_on(model, Property_ItemId, 2)); assert(item_calls == before);
-    FIELD(model, MediaListModel_all_row, uint8_t) = 1;
+    RV_FIELD(model, MediaListModel_all_row, uint8_t) = 1;
     assert(!render_on(model, Property_PodcastStatus, 0)); assert(item_calls == before);
     assert(render_on(model, Property_PodcastStatus, 3));
-    FIELD(model, MediaListModel_all_row, uint8_t) = 0;
+    RV_FIELD(model, MediaListModel_all_row, uint8_t) = 0;
     native_result = 0; assert(!render()); native_result = 1;
     assert(!render_on(model, Property_PodcastStatus, UINT32_MAX));
     uint8_t saved[sizeof half_icons[3]]; assert(render());
@@ -202,7 +202,7 @@ int main(void)
     memset(model2, 0xa5, sizeof model2); /* Dead model must never be touched on unload. */
     unload(); assert(!allocations && !borrowers);
     for (unsigned selected = 0; selected < 2; selected++)
-        assert(!progress_bitmap_owns(FIELD(icon_of(model, selected), Bitmap_pixels, void *)));
+        assert(!progress_bitmap_owns(RV_FIELD(icon_of(model, selected), Bitmap_pixels, void *)));
     assert(!render());
     stopping = 0;
     for (int j = 0; j < 20; j++) {

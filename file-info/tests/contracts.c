@@ -26,7 +26,7 @@ uint32_t rv_format_duration(char *out, uint32_t capacity, uint32_t seconds)
 static int strings_live;
 struct NativeString *NativeString_InitEmpty(struct NativeString *s)
 {
-    FIELD(s, 0, const char *) = "";
+    RV_FIELD(s, 0, const char *) = "";
     strings_live++;
     return s;
 }
@@ -34,12 +34,12 @@ struct NativeString *NativeString_Destroy(struct NativeString *s)
 {
     assert(strings_live > 0);
     strings_live--;
-    FIELD(s, 0, const char *) = NULL;
+    RV_FIELD(s, 0, const char *) = NULL;
     return s;
 }
 char *NativeString_GetUtf8(struct NativeString *s)
 {
-    return (char *)FIELD(s, 0, const char *);
+    return (char *)RV_FIELD(s, 0, const char *);
 }
 
 static int item_valid = 1;
@@ -60,11 +60,11 @@ static uint8_t track_record[0x100];
 static uintptr_t methods[0x140 / 4];
 static uint8_t item[MediaItem_bytes];
 
-#define TEXT_GETTER(name, field)                                                              \
-    static void name(const void *i, void *s)                                                  \
-    {                                                                                         \
-        assert(i == item);                                                                    \
-        FIELD(s, 0, const char *) = fake.field;                                               \
+#define TEXT_GETTER(name, field)                                                                   \
+    static void name(const void *i, void *s)                                                       \
+    {                                                                                              \
+        assert(i == item);                                                                         \
+        RV_FIELD(s, 0, const char *) = fake.field;                                                 \
     }
 TEXT_GETTER(get_title, title)
 TEXT_GETTER(get_artist, artist)
@@ -99,7 +99,7 @@ static void fill_date(void *out, unsigned year, unsigned month, unsigned day, un
 {
     uint8_t *w = out;
     memset(w, 0, DateTime_bytes);
-    FIELD(w, DateTime_year, uint16_t) = (uint16_t)year;
+    RV_FIELD(w, DateTime_year, uint16_t) = (uint16_t)year;
     w[DateTime_month] = (uint8_t)month;
     w[DateTime_day] = (uint8_t)day;
     w[DateTime_hour] = (uint8_t)hour;
@@ -156,19 +156,19 @@ static void reset(uint32_t kind, float sample_rate, uint16_t tracks, uint16_t di
     fake.play_count = 0;
     fake.skip_count = 2;
     memset(track_record, 0, sizeof track_record);
-    FIELD(track_record, MediaRecord_media_kind, uint32_t) = kind;
+    RV_FIELD(track_record, MediaRecord_media_kind, uint32_t) = kind;
     memcpy(track_record + MediaRecord_sample_rate, &sample_rate, 4);
-    FIELD(track_record, MediaRecord_track_total, uint16_t) = tracks;
-    FIELD(track_record, MediaRecord_disc_total, uint16_t) = discs;
-    FIELD(track_record, MediaRecord_volume, int16_t) = -51;
-    FIELD(track_record, MediaRecord_date_added, uint32_t) = 1;
-    FIELD(track_record, MediaRecord_date_modified, uint32_t) = 1;
-    FIELD(track_record, MediaRecord_last_played, uint32_t) = 1;
-    FIELD(track_record, MediaRecord_last_skipped, uint32_t) = 1;
+    RV_FIELD(track_record, MediaRecord_track_total, uint16_t) = tracks;
+    RV_FIELD(track_record, MediaRecord_disc_total, uint16_t) = discs;
+    RV_FIELD(track_record, MediaRecord_volume, int16_t) = -51;
+    RV_FIELD(track_record, MediaRecord_date_added, uint32_t) = 1;
+    RV_FIELD(track_record, MediaRecord_date_modified, uint32_t) = 1;
+    RV_FIELD(track_record, MediaRecord_last_played, uint32_t) = 1;
+    RV_FIELD(track_record, MediaRecord_last_skipped, uint32_t) = 1;
     memset(item, 0, sizeof item);
-    FIELD(item, 0, void *) = methods;
-    FIELD(item, MediaItem_record, void *) = track_record;
-    FIELD(item, MediaItem_generation, uint32_t)++;
+    RV_FIELD(item, 0, void *) = methods;
+    RV_FIELD(item, MediaItem_record, void *) = track_record;
+    RV_FIELD(item, MediaItem_generation, uint32_t)++;
     item_valid = 1;
 }
 
@@ -270,10 +270,10 @@ int main(void)
     fake.kind = "";
     fake.disc = 2;
     fake.rating = 0;
-    FIELD(track_record, MediaRecord_volume, int16_t) = 0;
-    FIELD(track_record, MediaRecord_last_played, uint32_t) = 0;
-    FIELD(track_record, MediaRecord_last_skipped, uint32_t) = 0;
-    FIELD(track_record, MediaRecord_date_modified, uint32_t) = 0;
+    RV_FIELD(track_record, MediaRecord_volume, int16_t) = 0;
+    RV_FIELD(track_record, MediaRecord_last_played, uint32_t) = 0;
+    RV_FIELD(track_record, MediaRecord_last_skipped, uint32_t) = 0;
+    RV_FIELD(track_record, MediaRecord_date_modified, uint32_t) = 0;
     static const char *const song_short[] = {
         "Title", "Artist", "Album", "Genre", "Duration", "Track", "Disc", "Sample Rate",
         "Bitrate", "File Size", "Rating", "Play Count", "Skip Count", "Date Added",
@@ -289,7 +289,7 @@ int main(void)
     fake.duration = 187000;
     fake.rating = 100;
     fake.file_size = 1048576 * 1000 + 943718;
-    FIELD(track_record, MediaRecord_volume, int16_t) = 255;
+    RV_FIELD(track_record, MediaRecord_volume, int16_t) = 255;
     expect(8, "Duration", "3:07");
     expect(10, "Disc", "1");
     expect(12, "Sample Rate", "22 kHz");
@@ -312,7 +312,7 @@ int main(void)
     expect(6, "Release Date", "2019-12-24 18:00");
     expect(8, "Chapters", "5");
     fake.release = 0;
-    FIELD(item, MediaItem_generation, uint32_t)++;
+    RV_FIELD(item, MediaItem_generation, uint32_t)++;
     assert(info_rows(item) == 16);
     reset(MediaKind_ITunesU, 44100.0f, 0, 0);
     static const char *const lecture[] = {
@@ -371,7 +371,7 @@ int main(void)
     /* A different item replaces the rows; release forgets them. */
     reset(0, 44100.0f, 0, 0);
     assert(info_rows(item) == 23);
-    FIELD(item, MediaItem_generation, uint32_t)++;
+    RV_FIELD(item, MediaItem_generation, uint32_t)++;
     fake.year = 0;
     assert(info_rows(item) == 22);
     info_release();

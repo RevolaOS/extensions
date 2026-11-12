@@ -6,9 +6,8 @@
 
 #include "chapters.h"
 #include "osos-2.0.5.h"
+#include "rv_api.h"
 #include "rv_libc.h"
-
-#define FIELD(base, offset, type) (*(type *)((uint8_t *)(base) + (offset)))
 
 /* The native string the last title lives in, and the texts of a row without
  * one: "Chapter 4294967295" and a start of at most "1193:02:47". */
@@ -26,7 +25,7 @@ static struct MediaItem *media(const void *item)
 
 uint32_t chapters_count(const void *item)
 {
-    if (!item || !FIELD(item, MediaItem_record, void *) || !MediaItem_IsValid(media(item)) ||
+    if (!item || !RV_FIELD(item, MediaItem_record, void *) || !MediaItem_IsValid(media(item)) ||
         MediaItem_HasKind8062(media(item)))
         return 0;
     uint32_t count = MediaItem_GetChapterCount(media(item));
@@ -66,8 +65,9 @@ const char *chapters_row(const void *item, uint32_t index, const char **start)
  * a record reused after a library reload apart. */
 static int same_item(const void *a, const void *b)
 {
-    return FIELD(a, MediaItem_record, void *) == FIELD(b, MediaItem_record, void *) &&
-           FIELD(a, MediaItem_generation, uint32_t) == FIELD(b, MediaItem_generation, uint32_t);
+    return RV_FIELD(a, MediaItem_record, void *) == RV_FIELD(b, MediaItem_record, void *) &&
+           RV_FIELD(a, MediaItem_generation, uint32_t) ==
+               RV_FIELD(b, MediaItem_generation, uint32_t);
 }
 
 /* Chapter `index`'s start in `item` into *ms; 0 when the chapter is gone or
@@ -78,7 +78,7 @@ static int start_of(const void *item, uint32_t index, uint32_t *ms)
         return 0;
     typedef uint32_t (*getter)(const void *);
     *ms = MediaItem_GetChapterStartMs(media(item), index);
-    return *ms < FIELD(FIELD(item, 0, void *), MediaItem_duration_method, getter)(item);
+    return *ms < RV_FIELD(RV_FIELD(item, 0, void *), MediaItem_duration_method, getter)(item);
 }
 
 uint32_t chapters_current(const void *item)
@@ -119,8 +119,8 @@ void chapters_play(void *list, int32_t row, const void *item, uint32_t index)
     MediaItem_InitFromRecord(media(selected), NULL, 0);
     /* Native struct return places the output pointer before this. */
     typedef void (*get_item)(struct MediaItem *, void *, int32_t);
-    FIELD(FIELD(model, 0, void *), SongModel_get_item_method, get_item)(media(selected), model,
-                                                                        row);
+    RV_FIELD(RV_FIELD(model, 0, void *), SongModel_get_item_method, get_item)(media(selected),
+                                                                              model, row);
     uint32_t ms;
     int ok = same_item(selected, item) && start_of(selected, index, &ms);
     MediaItem_Destroy(media(selected));

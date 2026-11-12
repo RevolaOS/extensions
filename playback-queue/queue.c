@@ -8,9 +8,8 @@
 
 #include "queue.h"
 #include "osos-2.0.5.h"
+#include "rv_api.h"
 #include <stddef.h>
-
-#define FIELD(base, offset, type) (*(type *)((uint8_t *)(base) + (offset)))
 
 static void *view_of(void *player)
 {
@@ -19,19 +18,19 @@ static void *view_of(void *player)
 
 static struct MediaList *list_of(void *player)
 {
-    return FIELD(view_of(player), MediaListView_list, struct MediaList *);
+    return RV_FIELD(view_of(player), MediaListView_list, struct MediaList *);
 }
 
 static struct MediaEntry *root_of(struct MediaList *list)
 {
-    return FIELD(list, MediaList_root, struct MediaEntry *);
+    return RV_FIELD(list, MediaList_root, struct MediaEntry *);
 }
 
 /* The core's track-count patch keeps a list's track count as a word at
  * MediaEntry_groups, so a library may pass 65,535 tracks. */
 static uint32_t tracks_of(struct MediaList *list)
 {
-    return FIELD(root_of(list), MediaEntry_groups, uint32_t);
+    return RV_FIELD(root_of(list), MediaEntry_groups, uint32_t);
 }
 
 static uint32_t count_of(void *player)
@@ -41,22 +40,22 @@ static uint32_t count_of(void *player)
 
 static int32_t *current_index(void *player)
 {
-    return &FIELD(player, MediaPlayer_current_index, int32_t);
+    return &RV_FIELD(player, MediaPlayer_current_index, int32_t);
 }
 
 static int shuffled(struct MediaList *list)
 {
-    return FIELD(list, MediaList_flags, uint8_t) & MediaListFlags_Shuffled;
+    return RV_FIELD(list, MediaList_flags, uint8_t) & MediaListFlags_Shuffled;
 }
 
 static int reversed(struct MediaList *list)
 {
-    return (FIELD(list, MediaList_order_flags, uint8_t) & MediaListOrderFlags_Reversed) != 0;
+    return (RV_FIELD(list, MediaList_order_flags, uint8_t) & MediaListOrderFlags_Reversed) != 0;
 }
 
 static uint32_t rank_of(struct MediaEntry *entry)
 {
-    return FIELD(entry, MediaEntry_song_shuffle_rank, uint32_t);
+    return RV_FIELD(entry, MediaEntry_song_shuffle_rank, uint32_t);
 }
 
 static void *lock(void)
@@ -75,21 +74,21 @@ static void unlock(void *player)
 static struct MediaEntry *current_entry(void *player)
 {
     void *view = view_of(player);
-    if (!FIELD(player, MediaPlayer_current_track, void *) || !MediaListView_IsValid(view))
+    if (!RV_FIELD(player, MediaPlayer_current_track, void *) || !MediaListView_IsValid(view))
         return NULL;
     struct MediaList *list = list_of(player);
     uint32_t count = count_of(player);
-    if (!(FIELD(list, MediaList_flags, uint8_t) & MediaListFlags_PlaybackList))
+    if (!(RV_FIELD(list, MediaList_flags, uint8_t) & MediaListFlags_PlaybackList))
         return NULL;
     if (*current_index(player) < 0 || (uint32_t)*current_index(player) >= count)
         return NULL;
     struct MediaEntry *current = PlaybackList_GetEntryByIndex(view, *current_index(player));
-    if (!current || FIELD(current, MediaEntry_parent, struct MediaEntry *) != root_of(list) ||
-        (FIELD(current, MediaEntry_flags, uint32_t) & MediaEntryFlags_Group))
+    if (!current || RV_FIELD(current, MediaEntry_parent, struct MediaEntry *) != root_of(list) ||
+        (RV_FIELD(current, MediaEntry_flags, uint32_t) & MediaEntryFlags_Group))
         return NULL;
     if (shuffled(list)) {
-        void *order = FIELD(list, MediaList_shuffle_index, void *);
-        if (!order || FIELD(order, MediaOrder_count, uint32_t) != count)
+        void *order = RV_FIELD(list, MediaList_shuffle_index, void *);
+        if (!order || RV_FIELD(order, MediaOrder_count, uint32_t) != count)
             return NULL;
     }
     return current;
@@ -97,23 +96,23 @@ static struct MediaEntry *current_entry(void *player)
 
 static int editable(void *player)
 {
-    if (FIELD(player, MediaPlayer_current_track, void *))
+    if (RV_FIELD(player, MediaPlayer_current_track, void *))
         return current_entry(player) != NULL;
     if (!MediaListView_IsValid(view_of(player)))
         return 0;
     struct MediaList *list = list_of(player);
-    if (!root_of(list) || !(FIELD(list, MediaList_flags, uint8_t) & MediaListFlags_PlaybackList))
+    if (!root_of(list) || !(RV_FIELD(list, MediaList_flags, uint8_t) & MediaListFlags_PlaybackList))
         return 0;
     uint32_t count = count_of(player);
     if (count) {
         struct MediaEntry *entry = PlaybackList_GetEntryByIndex(view_of(player), 0);
-        if (!entry || FIELD(entry, MediaEntry_parent, struct MediaEntry *) != root_of(list) ||
-            (FIELD(entry, MediaEntry_flags, uint32_t) & MediaEntryFlags_Group))
+        if (!entry || RV_FIELD(entry, MediaEntry_parent, struct MediaEntry *) != root_of(list) ||
+            (RV_FIELD(entry, MediaEntry_flags, uint32_t) & MediaEntryFlags_Group))
             return 0;
     }
     if (shuffled(list) && count) {
-        void *order = FIELD(list, MediaList_shuffle_index, void *);
-        if (!order || FIELD(order, MediaOrder_count, uint32_t) != count)
+        void *order = RV_FIELD(list, MediaList_shuffle_index, void *);
+        if (!order || RV_FIELD(order, MediaOrder_count, uint32_t) != count)
             return 0;
     }
     return 1;
@@ -121,7 +120,9 @@ static int editable(void *player)
 
 static uint32_t first_pending(void *player)
 {
-    return FIELD(player, MediaPlayer_current_track, void *) ? (uint32_t)*current_index(player) + 1 : 0;
+    return RV_FIELD(player, MediaPlayer_current_track, void *)
+               ? (uint32_t)*current_index(player) + 1
+               : 0;
 }
 
 static uint32_t upcoming(void *player)
@@ -133,7 +134,7 @@ static int prepare_queue(void *player)
 {
     if (editable(player))
         return 1;
-    if (FIELD(player, MediaPlayer_current_track, void *))
+    if (RV_FIELD(player, MediaPlayer_current_track, void *))
         return 0;
     /* Native initialization attaches the list and playback source without
      * loading a current track. Repeat 3 preserves the native preference. */
@@ -151,10 +152,10 @@ static void stop_artwork(void *player)
  * caches the track order. */
 static void changed(void *player)
 {
-    if (FIELD(player, MediaPlayer_current_track, void *))
+    if (RV_FIELD(player, MediaPlayer_current_track, void *))
         MediaPlayer_RebuildArtwork(player);
     MediaPlayer_ClearPreparedTrack(player);
-    Audio_SetPlaybackSource(FIELD(player, MediaPlayer_playback_source, void *));
+    Audio_SetPlaybackSource(RV_FIELD(player, MediaPlayer_playback_source, void *));
 }
 
 /* A copy of `entry` that ends up at playback index `position`. */
@@ -164,27 +165,28 @@ static struct MediaEntry *insert_at(void *player, struct MediaEntry *entry, uint
     uint32_t count = count_of(player);
     int reverse = reversed(list);
     uint32_t rank = reverse ? count - position : position;
-    struct MediaEntry *after = reverse && !position ?
-        FIELD(root_of(list), MediaEntry_group_last, struct MediaEntry *) : NULL;
+    struct MediaEntry *after =
+        reverse && !position ? RV_FIELD(root_of(list), MediaEntry_group_last, struct MediaEntry *)
+                             : NULL;
     if (position) {
         after = PlaybackList_GetEntryByIndex(view_of(player), position - 1);
         if (reverse)
-            after = FIELD(after, MediaEntry_previous, struct MediaEntry *);
+            after = RV_FIELD(after, MediaEntry_previous, struct MediaEntry *);
     }
     struct MediaEntry *cursor[] = {root_of(list), after};
 
-    void *track_data = FIELD(list, MediaList_track_data, void *);
+    void *track_data = RV_FIELD(list, MediaList_track_data, void *);
     TrackData_AcquireStringCaches(track_data);
     if (shuffled(list)) {
         /* The shuffle order sorts by rank; leave a gap at `rank`. */
-        void *order = FIELD(list, MediaList_shuffle_index, void *);
+        void *order = RV_FIELD(list, MediaList_shuffle_index, void *);
         struct MediaEntry **entries = (struct MediaEntry **)((uint8_t *)order + MediaOrder_entries);
         for (uint32_t i = 0; i < count; i++)
-            FIELD(entries[i], MediaEntry_song_shuffle_rank, uint32_t) = i + (i >= rank);
+            RV_FIELD(entries[i], MediaEntry_song_shuffle_rank, uint32_t) = i + (i >= rank);
     }
     struct MediaEntry *inserted = MediaList_CopyEntryAtPosition(entry, list, cursor, 0);
     if (inserted && shuffled(list)) {
-        FIELD(inserted, MediaEntry_song_shuffle_rank, uint32_t) = rank;
+        RV_FIELD(inserted, MediaEntry_song_shuffle_rank, uint32_t) = rank;
         /* Copy notifications may rebuild the order before the rank is set. */
         MediaList_InvalidateOrderCache(list, MediaOrderMode_Shuffle);
     }
@@ -202,9 +204,10 @@ static void remove_between(struct MediaList *list, struct MediaEntry *from, stru
     if (shuffled(list)) {
         /* Shuffled songs play by rank, descending when reversed. */
         uint32_t start = from ? rank_of(from) : 0, end = to ? rank_of(to) : 0;
-        struct MediaEntry *entry = FIELD(root_of(list), MediaEntry_group_first, struct MediaEntry *);
+        struct MediaEntry *entry =
+            RV_FIELD(root_of(list), MediaEntry_group_first, struct MediaEntry *);
         while (entry) {
-            struct MediaEntry *next = FIELD(entry, MediaEntry_next, struct MediaEntry *);
+            struct MediaEntry *next = RV_FIELD(entry, MediaEntry_next, struct MediaEntry *);
             uint32_t rank = rank_of(entry);
             int between = reverse ? (!from || rank < start) && (!to || rank > end)
                                   : (!from || rank > start) && (!to || rank < end);
@@ -214,11 +217,12 @@ static void remove_between(struct MediaList *list, struct MediaEntry *from, stru
         }
     } else {
         uint32_t step = reverse ? MediaEntry_previous : MediaEntry_next;
-        struct MediaEntry *entry = from ? FIELD(from, step, struct MediaEntry *) :
-            FIELD(root_of(list), reverse ? MediaEntry_group_last : MediaEntry_group_first,
-                  struct MediaEntry *);
+        struct MediaEntry *entry =
+            from ? RV_FIELD(from, step, struct MediaEntry *)
+                 : RV_FIELD(root_of(list), reverse ? MediaEntry_group_last : MediaEntry_group_first,
+                            struct MediaEntry *);
         while (entry && entry != to) {
-            struct MediaEntry *next = FIELD(entry, step, struct MediaEntry *);
+            struct MediaEntry *next = RV_FIELD(entry, step, struct MediaEntry *);
             MediaEntry_Remove(entry);
             entry = next;
         }
@@ -240,19 +244,19 @@ static void remove_one(void *player, uint32_t index)
 
 static struct MediaEntry *item_entry(struct MediaItem *item)
 {
-    struct MediaEntry *entry = FIELD(item, MediaItem_entry, struct MediaEntry *);
-    void *record = FIELD(item, MediaItem_record, void *);
+    struct MediaEntry *entry = RV_FIELD(item, MediaItem_entry, struct MediaEntry *);
+    void *record = RV_FIELD(item, MediaItem_record, void *);
     if (!entry && record)
-        entry = FIELD(record, MediaRecord_entries, struct MediaEntry *);
+        entry = RV_FIELD(record, MediaRecord_entries, struct MediaEntry *);
     return entry;
 }
 
 static int is_queueable(struct MediaItem *item)
 {
     struct MediaEntry *entry = item_entry(item);
-    return entry && !(FIELD(entry, MediaEntry_flags, uint32_t) & MediaEntryFlags_Group) &&
-           !MediaItem_HasKind200000(item) &&
-           !MediaItem_HasKind8(item) && !MediaItem_HasKind8062(item);
+    return entry && !(RV_FIELD(entry, MediaEntry_flags, uint32_t) & MediaEntryFlags_Group) &&
+           !MediaItem_HasKind200000(item) && !MediaItem_HasKind8(item) &&
+           !MediaItem_HasKind8062(item);
 }
 
 int queue_available(void)
@@ -266,7 +270,7 @@ int queue_available(void)
 int queue_can_add(void)
 {
     void *player = lock();
-    int allowed = !FIELD(player, MediaPlayer_current_track, void *) || editable(player);
+    int allowed = !RV_FIELD(player, MediaPlayer_current_track, void *) || editable(player);
     unlock(player);
     return allowed;
 }
@@ -312,7 +316,7 @@ void queue_add_browser(void *browser, int last)
     /* The songs and order Add to On-The-Go would take for this selection. */
     MediaBrowser_BuildSongs(browser);
     uint32_t mode = shuffled(source) ? MediaOrderMode_Shuffle : MediaBrowser_GetOrderMode(browser);
-    uint32_t grouped = FIELD(browser, MediaBrowser_order_flag, uint8_t) != 0;
+    uint32_t grouped = RV_FIELD(browser, MediaBrowser_order_flag, uint8_t) != 0;
     uint32_t count = tracks_of(source);
 
     stop_artwork(player);
@@ -321,7 +325,7 @@ void queue_add_browser(void *browser, int last)
         /* Play Next puts each song right after the current one: walk backwards. */
         uint32_t index = last ? i : count - 1 - i;
         struct MediaEntry *entry = MediaList_GetEntryByOrderIndex(source, mode, grouped, index);
-        if (!entry || !FIELD(entry, MediaEntry_song_record, void *) ||
+        if (!entry || !RV_FIELD(entry, MediaEntry_song_record, void *) ||
             !MediaBrowser_EvaluateEntryFilters(browser, entry, source))
             continue;
         if (!editable(player))
@@ -354,7 +358,7 @@ int queue_changed(void)
     void *player = lock();
     int valid = editable(player);
     void *list = valid ? list_of(player) : NULL;
-    void *track = valid ? FIELD(player, MediaPlayer_current_track, void *) : NULL;
+    void *track = valid ? RV_FIELD(player, MediaPlayer_current_track, void *) : NULL;
     uint32_t count = valid ? count_of(player) : 0;
     int32_t index = valid ? *current_index(player) : -1;
     uint8_t order = valid ? (shuffled(list) != 0) | (reversed(list) << 1) : 0;
@@ -382,8 +386,8 @@ void queue_text(uint32_t row, int artist, char *out, uint32_t capacity)
         if (MediaPlayer_GetItemAtIndex(player, first_pending(player) + row,
                                        (struct MediaItem *)item)) {
             void (*get)(void *, struct NativeString *) =
-                FIELD(FIELD(item, 0, void **),
-                      artist ? MediaItem_artist_method : MediaItem_title_method, void *);
+                RV_FIELD(RV_FIELD(item, 0, void **),
+                         artist ? MediaItem_artist_method : MediaItem_title_method, void *);
             NativeString_InitEmpty((struct NativeString *)text);
             get(item, (struct NativeString *)text);
             const char *utf8 = NativeString_GetUtf8((struct NativeString *)text);

@@ -7,8 +7,6 @@
 #include "rv_ui.h"
 #include <stddef.h>
 
-#define FIELD(base, offset, type) (*(type *)((uint8_t *)(base) + (offset)))
-
 static const struct rv_api *api;
 static rv_extension_handle self;
 static int stopping;
@@ -31,12 +29,12 @@ static void *icon_of(void *model, unsigned selected)
 static uint32_t item_value(struct MediaItem *item, uint32_t method)
 {
     typedef uint32_t (*getter)(struct MediaItem *);
-    return FIELD(FIELD(item, 0, void *), method, getter)(item);
+    return RV_FIELD(RV_FIELD(item, 0, void *), method, getter)(item);
 }
 
 static int in_progress(struct MediaItem *item, void *player)
 {
-    if (!FIELD(item, MediaItem_record, void *) || !MediaItem_IsValid(item) ||
+    if (!RV_FIELD(item, MediaItem_record, void *) || !MediaItem_IsValid(item) ||
         !item_value(item, MediaItem_remembers_position_method))
         return 0;
     uint32_t start = item_value(item, MediaItem_start_time_method);
@@ -46,15 +44,16 @@ static int in_progress(struct MediaItem *item, void *player)
     if (end <= start)
         return 0;
     uint32_t position = item_value(item, MediaItem_bookmark_method);
-    if (FIELD(player, MediaPlayer_current_track, void *)) {
+    if (RV_FIELD(player, MediaPlayer_current_track, void *)) {
         uint32_t storage[MediaItem_bytes / 4];
         struct MediaItem *current = (void *)storage;
         MediaItem_InitFromRecord(current, NULL, 0);
         MediaPlayer_GetCurrentItem(player, current);
         if (MediaItem_IsValid(current) &&
-            FIELD(current, MediaItem_record, void *) == FIELD(item, MediaItem_record, void *) &&
-            FIELD(current, MediaItem_generation, uint32_t) ==
-                FIELD(item, MediaItem_generation, uint32_t))
+            RV_FIELD(current, MediaItem_record, void *) ==
+                RV_FIELD(item, MediaItem_record, void *) &&
+            RV_FIELD(current, MediaItem_generation, uint32_t) ==
+                RV_FIELD(item, MediaItem_generation, uint32_t))
             position = MediaPlayer_GetPosition(player);
         MediaItem_Destroy(current);
     }
@@ -97,7 +96,7 @@ static uint32_t property(uintptr_t model_address, uint32_t type, uint32_t proper
          property != Property_ITunesUStatus && property != Property_ITunesUStatusSelected))
         return handled;
     void *model = (void *)model_address;
-    if (FIELD(model, MediaListModel_all_row, uint8_t)) {
+    if (RV_FIELD(model, MediaListModel_all_row, uint8_t)) {
         if (!row)
             return handled;
         row--;
@@ -112,7 +111,7 @@ static uint32_t property(uintptr_t model_address, uint32_t type, uint32_t proper
     Mutex_Lock((uint8_t *)player + MediaPlayer_mutex);
     /* Native struct return places the output pointer before this. */
     typedef void (*get_item)(struct MediaItem *, void *, uint32_t);
-    FIELD(FIELD(source, 0, void *), SongModel_get_item_method, get_item)(item, source, row);
+    RV_FIELD(RV_FIELD(source, 0, void *), SongModel_get_item_method, get_item)(item, source, row);
     int partial = in_progress(item, player);
     int video = partial && MediaItem_HasKind8062(item);
     MediaItem_Destroy(item);
@@ -128,8 +127,8 @@ static uint32_t property(uintptr_t model_address, uint32_t type, uint32_t proper
     if (!bitmap)
         return handled;
     void *icon = icon_of(model, selected);
-    const uint8_t *payload = FIELD(icon, Bitmap_pixels, const uint8_t *);
-    if (!payload || progress_bitmap_owns(payload) || FIELD(icon, Bitmap_owns_pixels, uint8_t))
+    const uint8_t *payload = RV_FIELD(icon, Bitmap_pixels, const uint8_t *);
+    if (!payload || progress_bitmap_owns(payload) || RV_FIELD(icon, Bitmap_owns_pixels, uint8_t))
         return handled;
     struct borrower *b = remember(model);
     if (!b)
@@ -149,7 +148,7 @@ static void unload(void)
         borrowers = b->next;
         for (unsigned selected = 0; selected < 2; selected++) {
             void *icon = icon_of(b->model, selected);
-            if (progress_bitmap_owns(FIELD(icon, Bitmap_pixels, const void *)))
+            if (progress_bitmap_owns(RV_FIELD(icon, Bitmap_pixels, const void *)))
                 Bitmap_LoadResource(icon, b->native[selected], 0, 0);
         }
         api->free(self, b);

@@ -24,6 +24,7 @@ with tempfile.TemporaryDirectory(prefix="file-info-tests-") as name:
     (work / "osos-2.0.5.h").write_text(
         re.sub(r"#define (\w+) (0x[0-9a-f]+)", widen, header)
     )
+    (work / "rv_api.h").write_text((sdk / "rv_api.h").read_text())
     (work / "rv_libc.h").write_text((sdk / "rv_libc.h").read_text())
     executable = work / "contracts"
     subprocess.run(

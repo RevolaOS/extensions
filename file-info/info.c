@@ -5,9 +5,8 @@
 
 #include "info.h"
 #include "osos-2.0.5.h"
+#include "rv_api.h"
 #include "rv_libc.h"
-
-#define FIELD(base, offset, type) (*(type *)((uint8_t *)(base) + (offset)))
 
 enum field {
     TITLE,
@@ -102,12 +101,12 @@ static struct {
 static uint32_t method(const void *item, uint32_t slot)
 {
     typedef uint32_t (*getter)(const void *);
-    return FIELD(FIELD(item, 0, void *), slot, getter)(item);
+    return RV_FIELD(RV_FIELD(item, 0, void *), slot, getter)(item);
 }
 
 static const uint8_t *record(const void *item)
 {
-    return FIELD(item, MediaItem_record, const uint8_t *);
+    return RV_FIELD(item, MediaItem_record, const uint8_t *);
 }
 
 static void release_text(void)
@@ -141,7 +140,7 @@ static const char *text(const void *item, enum field field)
     release_text();
     NativeString_InitEmpty((struct NativeString *)info.text);
     info.text_live = 1;
-    FIELD(FIELD(item, 0, void *), slots[field], getter)(item, info.text);
+    RV_FIELD(RV_FIELD(item, 0, void *), slots[field], getter)(item, info.text);
     const char *data = NativeString_GetUtf8((struct NativeString *)info.text);
     if (data && *data)
         return data;
@@ -168,15 +167,15 @@ static void date(const void *item, uint32_t slot, int present)
     uint16_t when[DateTime_bytes / 2];
     const uint8_t *w = (const uint8_t *)when;
     if (present && slot == MediaItem_release_date_method)
-        present = FIELD(FIELD(item, 0, void *), slot, release_getter)(item, when);
+        present = RV_FIELD(RV_FIELD(item, 0, void *), slot, release_getter)(item, when);
     else if (present)
-        FIELD(FIELD(item, 0, void *), slot, getter)(when, item);
+        RV_FIELD(RV_FIELD(item, 0, void *), slot, getter)(when, item);
     if (!present) {
         info.unknown = 1;
         return;
     }
     rv_format(info.value, sizeof info.value, "%u-%02u-%02u %02u:%02u",
-              FIELD(w, DateTime_year, uint16_t), w[DateTime_month], w[DateTime_day],
+              RV_FIELD(w, DateTime_year, uint16_t), w[DateTime_month], w[DateTime_day],
               w[DateTime_hour], w[DateTime_minute]);
 }
 
@@ -229,14 +228,14 @@ static const char *value(const void *item, enum field field)
     /* The record keeps the track and disc totals beside the ordinals. */
     case TRACK:
         ordinal(method(item, MediaItem_track_number_method) & 0xffff,
-                FIELD(r, MediaRecord_track_total, uint16_t));
+                RV_FIELD(r, MediaRecord_track_total, uint16_t));
         break;
     case DISC:
         ordinal(method(item, MediaItem_disc_number_method) & 0xffff,
-                FIELD(r, MediaRecord_disc_total, uint16_t));
+                RV_FIELD(r, MediaRecord_disc_total, uint16_t));
         break;
     case SAMPLE_RATE:
-        sample_rate(FIELD(r, MediaRecord_sample_rate, uint32_t));
+        sample_rate(RV_FIELD(r, MediaRecord_sample_rate, uint32_t));
         break;
     case BITRATE:
         number(method(item, MediaItem_bitrate_method) & 0xffff, " kbps");
@@ -259,24 +258,25 @@ static const char *value(const void *item, enum field field)
         break;
     }
     case VOLUME:
-        volume(FIELD(r, MediaRecord_volume, int16_t));
+        volume(RV_FIELD(r, MediaRecord_volume, int16_t));
         break;
     case RELEASE_DATE:
         date(item, MediaItem_release_date_method, 1);
         break;
     case LAST_PLAYED:
-        date(item, MediaItem_last_played_method, FIELD(r, MediaRecord_last_played, uint32_t) != 0);
+        date(item, MediaItem_last_played_method,
+             RV_FIELD(r, MediaRecord_last_played, uint32_t) != 0);
         break;
     case LAST_SKIPPED:
         date(item, MediaItem_last_skipped_method,
-             FIELD(r, MediaRecord_last_skipped, uint32_t) != 0);
+             RV_FIELD(r, MediaRecord_last_skipped, uint32_t) != 0);
         break;
     case DATE_ADDED:
-        date(item, MediaItem_date_added_method, FIELD(r, MediaRecord_date_added, uint32_t) != 0);
+        date(item, MediaItem_date_added_method, RV_FIELD(r, MediaRecord_date_added, uint32_t) != 0);
         break;
     case DATE_MODIFIED:
         date(item, MediaItem_date_modified_method,
-             FIELD(r, MediaRecord_date_modified, uint32_t) != 0);
+             RV_FIELD(r, MediaRecord_date_modified, uint32_t) != 0);
         break;
     case PLAY_COUNT:
         rv_format(info.value, sizeof info.value, "%lu",
@@ -322,7 +322,7 @@ uint32_t info_rows(const void *item)
     info.count = 0;
     if (!valid(item))
         return 0;
-    uint32_t kind = FIELD(record(item), MediaRecord_media_kind, uint32_t);
+    uint32_t kind = RV_FIELD(record(item), MediaRecord_media_kind, uint32_t);
     for (const uint8_t *row = rows_for(kind); *row != FIELDS; row++) {
         info.unknown = 0;
         value(item, (enum field)*row);
