@@ -23,7 +23,8 @@ enum {
     EQ_VALUES = 1 + EQ_BANDS * (EQ_PARAMETERS - 1),
 };
 
-#define KEY_VALUES 1 /* blob: the EQ_VALUES choices */
+#define KEY_VALUES 1       /* blob: the EQ_VALUES choices */
+#define KEY_CUSTOM_SHOWN 2 /* bool: Custom is the preset that plays; shows the Settings row */
 
 enum { EQ_PRECUT_AUTO = 0 };
 

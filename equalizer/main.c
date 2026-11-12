@@ -77,6 +77,18 @@ static void open_editor(const struct rv_context *ctx)
     api->ui_push(self, "editor", (void *)&link);
 }
 
+/* The Settings row shows while Custom plays. The stored flag carries over a
+ * boot: MediaPlayer_GetInstance builds the player on first use, too early while
+ * extensions load, and the preset it then takes is the one stored anyway. */
+static uint32_t eq_apply(uintptr_t player, uint32_t settings_id, const void *next)
+{
+    uint32_t result = api->hook_next(next, player, settings_id, 0, 0, 0, 0);
+    int custom = MediaPlayer_GetEQSettingsId((void *)player) == EQ_CUSTOM_SETTINGS_ID;
+    if (api->setting_int(self, KEY_CUSTOM_SHOWN) != custom)
+        api->setting_set_int(self, KEY_CUSTOM_SHOWN, custom);
+    return result;
+}
+
 static void setting_changed(uint16_t key)
 {
     if (key == KEY_VALUES || key == RV_SETTING_KEY_ALL)
@@ -111,16 +123,23 @@ static const struct rv_hook hooks[] = {
     RV_HOOK_WORD(RV_SITE_EQ_ResourceCount_word, 0xe3550018), /* cmp r5, #EQ_ROWS */
     RV_HOOK_REPLACE(RV_SITE_EQ_TrackPreset_call, eq_track_preset),
     RV_HOOK_REPLACE(RV_SITE_EQ_SettingsIdToDspPreset_entry, eq_map_preset),
+    RV_HOOK_FILTER(RV_SITE_EQ_ApplySettingsId_slot, eq_apply),
+};
+
+static const struct rv_setting settings[] = {
+    RV_SETTING_BOOL(KEY_CUSTOM_SHOWN, NULL, 0),
 };
 
 static const struct rv_menu_entry entries[] = {
     RV_MENU_ENTRY(RV_MENU_SETTINGS, RV_SETTINGS_EQ, RV_ROW_ACTION("Custom EQ", open_editor),
-                  .caption = "Adjust your sound", .bitmap = RV_BITMAP("settings-eq")),
+                  .caption = "Adjust your sound", .bitmap = RV_BITMAP("settings-eq"),
+                  .shown_by = KEY_CUSTOM_SHOWN),
 };
 
 static const struct rv_descriptor extension = {
     .size = sizeof extension,
     RV_HOOKS(hooks),
+    RV_SETTINGS(settings),
     .unload = unload,
     .setting_changed = setting_changed,
     RV_ENTRIES(entries),
