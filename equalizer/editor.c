@@ -44,6 +44,7 @@ enum {
 
 static struct {
     int band, parameter, mode, response, dirty;
+    int menu_taken; /* the Menu press stepped back a mode; its release is not the system's */
     int16_t curve[RESPONSE_POINTS];
     int extent; /* tenths of a decibel at the top and bottom of the curve */
     unsigned int precut;
@@ -362,12 +363,16 @@ static int input(const struct rv_context *ctx, const struct rv_input *input)
         save(ctx);
         editor.mode = editor.mode == MODE_PARAMETER ? MODE_EDIT : MODE_PARAMETER;
     } else if (input->button == RV_BUTTON_MENU) {
+        if (input->kind == RV_INPUT_RELEASE) {
+            int taken = editor.menu_taken;
+            editor.menu_taken = 0;
+            return taken;
+        }
         if (editor.mode == MODE_BAND)
             return 0; /* the system pops the screen */
-        if (input->kind == RV_INPUT_RELEASE)
-            return 1;
         save(ctx);
         editor.mode--;
+        editor.menu_taken = 1;
     } else {
         return 0; /* playback keys */
     }
