@@ -8,6 +8,7 @@ Each extension is one file on the iPod, `/Revola/Extensions/<id>.rvx`, and can b
 |---|---|---|
 | `chapters` | Chapters: the chapters of a podcast or iTunes U episode, or of the playing track, from its context menu; choosing one plays from there | on |
 | `clicker-modes` | Clicker Modes: choose where the click wheel sound plays, the iPod's speaker, headphones, both or off | on |
+| `compressor` | Compressor: turn loud passages down so quiet ones can be heard without touching the volume; Rockbox's compressor with its threshold, ratio, knee, makeup gain, attack and release shaped in a graphical editor | off |
 | `crossfeed` | Crossfeed: feed a filtered part of each channel into the other so hard-panned stereo is easier on headphones; Rockbox's Simple mode or a Custom one with four values | off |
 | `equalizer` | Equalizer: Apple's EQ presets without distortion, and a Custom preset with five bands shaped in a graphical editor | on |
 | `eu-volume-limit` | EU Volume Limit: with EU Volume Limit off, volume goes 15% higher than stock, as on non-EU iPods, without the volume warning or automatic lowering | on |

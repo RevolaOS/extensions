@@ -1,0 +1,24 @@
+id = "compressor"
+name = "Compressor"
+description = "Turn loud passages down so quiet ones can be heard without touching the volume."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Ported from Rockbox"
+license = "GPL-3.0-only"
+api = "1.39"
+enabled = false
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
+
+[[module]]
+name = "editor"
+trigger = "screen"
+screens = ["editor"]
+
+[[asset]]
+name = "settings-compressor"
+file = "assets/settings-compressor.png"
+menu = true
