@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-/* The Custom values as text; shared.h gives each index its value. */
+/* The mode and the Custom values as text; shared.h gives each index its value. */
 
 #include "labels.h"
+
+const char *const mode_labels[MODE_LABELS] = {"Off", "Simple", "Custom"};
 
 const char *const direct_labels[DIRECT_LABELS] = {
     "-6.0 dB", "-5.5 dB", "-5.0 dB", "-4.5 dB", "-4.0 dB", "-3.5 dB", "-3.0 dB", "-2.5 dB",

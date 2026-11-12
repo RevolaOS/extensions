@@ -152,6 +152,7 @@ def label_tests(dll):
     def decibels(first, count):
         return [f"{(first + 5 * i) / 10:.1f} dB" for i in range(count)]
 
+    assert labels("mode_labels", 3) == ["Off", "Simple", "Custom"]
     assert labels("direct_labels", 13) == decibels(-60, 13)
     assert labels("cross_labels", 19) == decibels(-120, 19)
     assert labels("hf_labels", 37) == decibels(-240, 37)
@@ -166,13 +167,23 @@ def label_tests(dll):
 
 
 def response_tests(dll):
-    """The editor's curve: the cross gain in the bass, the attenuation in the
-    treble, falling in between, with the knee near the cutoff."""
+    """The editor's curves: in Custom the cross gain in the bass, the
+    attenuation in the treble, falling in between with the knee near the
+    cutoff, over a flat own channel; in Simple the loop's transfer function;
+    nothing fed across while Off."""
     response = dll.crossfeed_response
     response.argtypes = [ctypes.POINTER(Set), ctypes.c_uint]
-    response.argtypes += [ctypes.POINTER(ctypes.c_int16), ctypes.c_uint]
-    response.restype = ctypes.c_int
+    response.argtypes += [ctypes.POINTER(ctypes.c_int16)] * 2 + [ctypes.c_uint]
+    response.restype = None
     points = 261
+    hertz = [20 * 1000 ** (i / (points - 1)) for i in range(points)]
+
+    def curves(bank):
+        same = (ctypes.c_int16 * points)()
+        other = (ctypes.c_int16 * points)()
+        response(bank, 44100, same, other, points)
+        return list(same), list(other)
+
     cases = [
         (-15, -60, -160, 700),
         (0, -30, -60, 500),
@@ -180,17 +191,15 @@ def response_tests(dll):
         (0, -120, -60, 2000),
     ]
     for direct, cross, hf, cutoff in cases:
-        curve = (ctypes.c_int16 * points)()
         bank = Set(mode=2, direct=direct, cross=cross, hf=hf, cutoff=cutoff)
-        assert response(bank, 44100, curve, points) == 0
-        curve = list(curve)
+        same, curve = curves(bank)
+        assert same == [direct] * points
         assert abs(curve[0] - cross) <= 3, (cross, curve[0])
         assert abs(curve[-1] - hf) <= 3, (hf, curve[-1])
         steps = [b - a for a, b in zip(curve, curve[1:])]
         assert all(s <= 0 for s in steps) if hf < cross else all(s >= 0 for s in steps)
         # The shelf's pole and zero sit either side of the cutoff divided by
         # the half gain g, so the curve is halfway between its ends there.
-        hertz = [20 * 1000 ** (i / (points - 1)) for i in range(points)]
         g = 10 ** ((hf - cross) / 400)
         halfway = abs(hf - cross) / 2
         knee = next(i for i, t in enumerate(curve) if abs(t - cross) >= halfway)
@@ -204,23 +213,56 @@ def response_tests(dll):
             expected = 200 * math.log10(abs((b0 + b1 * z) / (1 - a1 * z)))
             assert abs(tenths - expected) <= 1, (hz, tenths, expected)
 
-    # The precut returned is the design's, and lowers the whole curve by it.
+    # The precut is the design's, and lowers both curves by it.
     design = dll.crossfeed_design
     for direct in DIRECTS:
         for cross in CROSSES:
             bank = Set(mode=2, direct=direct, cross=cross, hf=-160, cutoff=700)
-            plain = (ctypes.c_int16 * points)()
-            assert response(bank, 44100, plain, points) == 0
+            flat, plain = curves(bank)
+            assert flat == [direct] * points
             for precut in (AUTO, -30, -60):
                 out = Custom()
                 design(out, 44100, direct, cross, -160, 700, precut)
                 bank.precut = precut
-                curve = (ctypes.c_int16 * points)()
-                got = response(bank, 44100, curve, points)
-                assert got == out.precut, (direct, cross, precut, got, out.precut)
+                same, curve = curves(bank)
+                assert same == [direct + out.precut] * points, (direct, precut, same[0])
                 assert all(
-                    abs(c - (f + got)) <= 1 for c, f in zip(curve, plain, strict=True)
+                    abs(c - (f + out.precut)) <= 1
+                    for c, f in zip(curve, plain, strict=True)
                 )
+
+    # Simple: the loop's transfer function, H for the channel fed across and
+    # 1 - H for the ear's own, checked against the loop itself with a tone in
+    # one channel and then at every point.
+    c1, c2 = 2128 / 44100, 1000 / 44100
+
+    def simple_response(hz):
+        w = 2 * math.pi * hz / 44100
+        z = complex(math.cos(w), -math.sin(w))
+        return c2 * z**2 / (1 - (1 - c1) * z + 2 * c2 * z**2)
+
+    for hz in (50, 1000, 10000):
+        count = 20000
+        frames = [(int(20000 * math.sin(2 * math.pi * hz * i / 44100)), 0) for i in range(count)]
+        out = Reference(44100).simple(frames)[count // 2 :]
+        h = simple_response(hz)
+        for amplitude, expected in (
+            (max(abs(r) for _, r in out), abs(h)),
+            (max(abs(l) for l, _ in out), abs(1 - h)),
+        ):
+            got = 20 * math.log10(amplitude / 20000)
+            assert abs(got - 20 * math.log10(expected)) < 0.1, (hz, got, expected)
+    same, other = curves(Set(mode=1))
+    for hz, s, o in zip(hertz, same, other):
+        h = simple_response(hz)
+        assert abs(o - 200 * math.log10(abs(h))) <= 1, (hz, o)
+        assert abs(s - 200 * math.log10(abs(1 - h))) <= 1, (hz, s)
+    assert abs(other[0] + 123) <= 1 and abs(same[0] + 24) <= 1
+
+    # Off: the ear's own channel only.
+    same, other = curves(Set(mode=0))
+    assert same == [0] * points
+    assert other == [-32768] * points
 
 
 def wrap(value):

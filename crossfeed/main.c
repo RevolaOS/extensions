@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
-/* Crossfeed: Settings > Crossfeed chooses Off, Simple or Custom; Edit
- * Crossfeed, shown while Custom is chosen, opens the editor screen that shapes
- * the four values of the Custom cross path. The output-stage hook runs what is
- * chosen on every buffer. */
+/* Crossfeed: Settings > Crossfeed opens the editor screen, which holds the
+ * mode, Off, Simple or Custom, and the five values of the Custom cross path.
+ * The output-stage hook runs what is chosen on every buffer. */
 
+#include "labels.h"
 #include "osos-2.0.5.h"
 #include "rv_api.h"
 #include "rv_libc.h"
@@ -16,10 +16,7 @@
 static const struct rv_api *api;
 static rv_extension_handle self;
 
-static const char *const modes[] = {"Off", "Simple", "Custom"};
-
 static const struct rv_setting settings[] = {
-    RV_SETTING_BOOL(KEY_CUSTOM_SHOWN, NULL, 0),
     RV_SETTING_INT(KEY_MODE, "Crossfeed", CROSSFEED_OFF, CROSSFEED_OFF, CROSSFEED_CUSTOM),
     RV_SETTING_INT(KEY_DIRECT, NULL, DIRECT_DEFAULT, 0, DIRECT_LABELS - 1),
     RV_SETTING_INT(KEY_CROSS, NULL, CROSS_DEFAULT, 0, CROSS_LABELS - 1),
@@ -44,12 +41,8 @@ static void publish(void)
 
 static void setting_changed(uint16_t key)
 {
-    if (key == KEY_CUSTOM_SHOWN)
-        return;
+    (void)key;
     publish();
-    int custom = api->setting_int(self, KEY_MODE) == CROSSFEED_CUSTOM;
-    if (api->setting_int(self, KEY_CUSTOM_SHOWN) != custom)
-        api->setting_set_int(self, KEY_CUSTOM_SHOWN, custom);
 }
 
 /* The processed output before Apple submits it: (samples, frames, context).
@@ -70,29 +63,16 @@ static const struct rv_hook hooks[] = {
     RV_HOOK_FILTER_AT(RV_SITE_AudioOutputQueue_Get_call, on_output, RV_AUDIO_STAGE_CROSSFEED),
 };
 
-static void open_editor(const struct rv_context *ctx)
-{
-    (void)ctx;
-    api->ui_push(self, "editor", NULL);
-}
-
 /* The Settings pane names the mode, as Apple's EQ row does. */
 static const char *mode_caption(const struct rv_context *ctx)
 {
     (void)ctx;
-    return modes[api->setting_int(self, KEY_MODE)];
+    return mode_labels[api->setting_int(self, KEY_MODE)];
 }
 
-static const struct rv_screen screens[] = {
-    RV_SCREEN_CHOICE("mode", "Crossfeed", KEY_MODE, modes, .bitmap = RV_BITMAP("settings-crossfeed")),
-};
-
 static const struct rv_menu_entry entries[] = {
-    RV_MENU_ENTRY(RV_MENU_SETTINGS, RV_SETTINGS_SOUND_CHECK, RV_ROW_PUSH("Crossfeed", "mode"),
+    RV_MENU_ENTRY(RV_MENU_SETTINGS, RV_SETTINGS_SOUND_CHECK, RV_ROW_PUSH("Crossfeed", "editor"),
                   .caption_text = mode_caption, .bitmap = RV_BITMAP("settings-crossfeed")),
-    RV_MENU_ENTRY(RV_MENU_SETTINGS, RV_SETTINGS_SOUND_CHECK,
-                  RV_ROW_ACTION("Edit Crossfeed", open_editor), .caption = "Shape the Crossfeed",
-                  .bitmap = RV_BITMAP("settings-crossfeed"), .shown_by = KEY_CUSTOM_SHOWN),
 };
 
 static const struct rv_descriptor extension = {
@@ -100,7 +80,6 @@ static const struct rv_descriptor extension = {
     RV_HOOKS(hooks),
     RV_SETTINGS(settings),
     .setting_changed = setting_changed,
-    RV_SCREENS(screens),
     RV_ENTRIES(entries),
 };
 

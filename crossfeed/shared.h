@@ -7,10 +7,10 @@
 
 #include "crossfeed.h"
 
+/* Key 1 is retired: a bool an earlier layout showed a second Settings row by. */
 enum {
-    KEY_CUSTOM_SHOWN = 1, /* bool: Custom is chosen; shows the Edit Crossfeed row */
-    KEY_MODE,             /* int: CROSSFEED_OFF, _SIMPLE or _CUSTOM */
-    KEY_DIRECT,           /* int: indexes into labels.c and the helpers below */
+    KEY_MODE = 2, /* int: CROSSFEED_OFF, _SIMPLE or _CUSTOM */
+    KEY_DIRECT,   /* int: indexes into labels.c and the helpers below */
     KEY_CROSS,
     KEY_HF,
     KEY_CUTOFF,
@@ -20,6 +20,7 @@ enum {
 /* Each Custom value is an index; these turn it into Rockbox's units, tenths of
  * a decibel or hertz. */
 enum {
+    MODE_LABELS = 3,
     DIRECT_LABELS = 13,
     CROSS_LABELS = 19,
     HF_LABELS = 37,
@@ -41,10 +42,12 @@ static inline int precut_tenths(int index)
     return index == 0 ? CROSSFEED_PRECUT_AUTO : -5 * (index - 1);
 }
 
-/* response.c: a set's cross path at `rate`, its gain at `points` frequencies
- * from 20 Hz to 20 kHz evenly spaced in octaves, in tenths of a decibel, with
- * the precut applied. Returns the precut applied, in tenths at most 0. */
-int crossfeed_response(const struct crossfeed_set *set, unsigned int rate, int16_t *tenths,
-                       unsigned int points);
+/* response.c: what each ear hears with a set at `rate`, as gains at `points`
+ * frequencies from 20 Hz to 20 kHz evenly spaced in octaves, in tenths of a
+ * decibel: `same` is the ear's own channel, `other` the one fed across. Off
+ * leaves `same` at 0 and fills `other` with CROSSFEED_NO_PATH. */
+enum { CROSSFEED_NO_PATH = INT16_MIN };
+void crossfeed_response(const struct crossfeed_set *set, unsigned int rate, int16_t *same,
+                        int16_t *other, unsigned int points);
 
 #endif
