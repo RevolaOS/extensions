@@ -1,0 +1,24 @@
+id = "channels"
+name = "Channels"
+description = "Narrow or widen the stereo image, or play Mono, one channel in both ears, Karaoke or swapped channels, with Rockbox's channel modes."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Ported from Rockbox"
+license = "GPL-3.0-only"
+api = "1.40"
+enabled = false
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
+
+[[module]]
+name = "editor"
+trigger = "screen"
+screens = ["editor"]
+
+[[asset]]
+name = "settings-channels"
+file = "assets/settings-channels.png"
+menu = true

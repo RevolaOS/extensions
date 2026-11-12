@@ -6,6 +6,7 @@ Each extension is one file on the iPod, `/Revola/Extensions/<id>.rvx`, and can b
 
 | Directory | Extension | Default |
 |---|---|---|
+| `channels` | Channels: Rockbox's channel modes, Mono, Left Only, Right Only, Karaoke and Swap, and a Custom stereo width from 0 to 250 % shown on a half-disc stereo image | off |
 | `chapters` | Chapters: the chapters of a podcast or iTunes U episode, or of the playing track, from its context menu; choosing one plays from there | on |
 | `clicker-modes` | Clicker Modes: choose where the click wheel sound plays, the iPod's speaker, headphones, both or off | on |
 | `compressor` | Compressor: turn loud passages down so quiet ones can be heard without touching the volume; Rockbox's compressor with its threshold, ratio, knee, makeup gain, attack and release shaped in a graphical editor | off |
