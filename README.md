@@ -6,6 +6,7 @@ Each extension is one file on the iPod, `/Revola/Extensions/<id>.rvx`, and can b
 
 | Directory | Extension | Default |
 |---|---|---|
+| `chapters` | Chapters: the chapters of a podcast or iTunes U episode, or of the playing track, from its context menu; choosing one plays from there | on |
 | `clicker-modes` | Clicker Modes: choose where the click wheel sound plays, the iPod's speaker, headphones, both or off | on |
 | `eu-volume-limit` | EU Volume Limit: with EU Volume Limit off, volume goes 15% higher than stock, as on non-EU iPods, without the volume warning or automatic lowering | on |
 | `file-info` | File Info: a song, episode, audiobook or video's tags and file properties, from its context menu and Now Playing | on |

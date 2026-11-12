@@ -1,0 +1,13 @@
+id = "chapters"
+name = "Chapters"
+description = "Browse the chapters of a podcast or iTunes U episode, or of the playing track, from its context menu and jump to one."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+api = "1.36"
+enabled = true
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
