@@ -23,13 +23,15 @@
 static const struct rv_api *api;
 static rv_extension_handle self;
 
-/* A root as the games service scans it and as the manifest's content folder. */
+/* A root as the games service scans it, as the manifest's content folder, and
+ * where the packages under it keep their data. */
 struct root {
     const char *path;
     const char *content;
+    const char *data;
 };
-static const struct root games_root = {"/Revola/Games/", "Games"};
-static const struct root apps_root = {"/Revola/Apps/", "Apps"};
+static const struct root games_root = {"/Revola/Games/", "Games", "/Revola/Data/Games/"};
+static const struct root apps_root = {"/Revola/Apps/", "Apps", "/Revola/Data/Apps/"};
 
 /* The root the last scan listed and its ids, NUL separated, ending in an empty
  * name; what GameFiles_BuildPath redirects. */
@@ -167,24 +169,51 @@ static int listed(const char *id)
     return 0;
 }
 
-/* A listed id's path is under its RevolaOS root; one that does not fit stays
- * Apple's. */
+/* The folder under a listed id's data folder that stands for one of Apple's
+ * per-game folders: "" for its saves, Stats/ and Shared/ for the others. */
+static const char *data_subfolder(uint32_t kind)
+{
+    switch (kind) {
+    case GameDirectory_UserData:
+        return "";
+    case GameDirectory_Stats:
+        return "Stats/";
+    case GameDirectory_SharedData:
+        return "Shared/";
+    default:
+        return NULL;
+    }
+}
+
+/* A listed id's package is under its RevolaOS root and its saves, stats and
+ * shared data under the root's data folder; Apple's games and a path that
+ * does not fit stay Apple's. */
 static uint32_t on_build_path(struct NativeString *out, uint32_t kind, struct NativeString *id,
                               uint32_t storage, const void *next, const char *leaf)
 {
     const char *name = id ? NativeString_GetUtf8(id) : NULL;
+    const char *sub = data_subfolder(kind);
     char path[PATH_BYTES];
     if (leaf && *leaf == '/')
         leaf++;
-    if (kind == GameDirectory_Package && storage == GameStorage_Disk && name && listed(name)) {
-        unsigned root_n = strlen(listed_root->path), name_n = strlen(name);
+    if ((kind == GameDirectory_Package || sub) && storage == GameStorage_Disk && name &&
+        listed(name)) {
+        const char *root = kind == GameDirectory_Package ? listed_root->path : listed_root->data;
+        if (!sub)
+            sub = "";
+        unsigned root_n = strlen(root), name_n = strlen(name), sub_n = strlen(sub);
         unsigned leaf_n = leaf ? strlen(leaf) : 0;
-        if (root_n + name_n + 1 + leaf_n < sizeof path) {
-            memcpy(path, listed_root->path, root_n);
-            memcpy(path + root_n, name, name_n);
-            path[root_n + name_n] = '/';
-            memcpy(path + root_n + name_n + 1, leaf, leaf_n);
-            path[root_n + name_n + 1 + leaf_n] = 0;
+        if (root_n + name_n + 1 + sub_n + leaf_n < sizeof path) {
+            char *at = path;
+            memcpy(at, root, root_n);
+            at += root_n;
+            memcpy(at, name, name_n);
+            at += name_n;
+            *at++ = '/';
+            memcpy(at, sub, sub_n);
+            at += sub_n;
+            memcpy(at, leaf, leaf_n);
+            at[leaf_n] = 0;
             NativeString_InitUtf8(out, path);
             return 0;
         }
