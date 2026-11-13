@@ -1,0 +1,47 @@
+id = "appearance"
+name = "Appearance"
+description = "Dark Mode, Accent Color and themes that recolour the screens and replace the artwork."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+api = "1.47"
+stability = "alpha"
+content = "Themes"
+
+[[module]]
+name = "main"
+trigger = "always"
+
+[[module]]
+name = "switch"
+trigger = "manual"
+
+[[asset]]
+name = "settings-appearance"
+file = "assets/settings-appearance.png"
+menu = true
+
+[[asset]]
+name = "settings-theme"
+file = "assets/settings-theme.png"
+menu = true
+
+[[asset]]
+name = "settings-moon"
+file = "assets/settings-moon.png"
+menu = true
+
+[[asset]]
+name = "settings-accent"
+file = "assets/settings-accent.png"
+menu = true
+
+[[asset]]
+name = "settings-covers"
+file = "assets/settings-covers.png"
+menu = true
+
+[[asset]]
+name = "classic"
+file = "build/classic.rvt"
+compress = false
