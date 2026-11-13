@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-ID := chapters
+ID := chapter-menu
 MODULES := main
 main_SOURCES := main.c chapters.c
 ifndef SDK

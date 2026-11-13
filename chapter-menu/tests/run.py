@@ -10,7 +10,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent
 sdk = Path(sys.argv[1]).resolve()
-with tempfile.TemporaryDirectory(prefix="chapters-tests-") as name:
+with tempfile.TemporaryDirectory(prefix="chapter-menu-tests-") as name:
     work = Path(name)
     # Widen the pointer-bearing native layouts for the host; record offsets stay.
     header = (sdk / "osos-2.0.5.h").read_text()
@@ -47,4 +47,4 @@ with tempfile.TemporaryDirectory(prefix="chapters-tests-") as name:
         check=True,
     )
     subprocess.run([str(executable)], check=True)
-print("Chapters contracts passed")
+print("Chapter Menu contracts passed")

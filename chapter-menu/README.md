@@ -1,4 +1,4 @@
-# Chapters
+# Chapter Menu
 
 Adds Chapters to the context menu (hold Select) of a podcast or iTunes U episode, and to the Now Playing context menu, when the item has chapters. The screen lists each chapter's title with its start time, "m:ss" or "h:mm:ss".
 

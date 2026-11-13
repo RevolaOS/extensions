@@ -1,5 +1,5 @@
-id = "chapters"
-name = "Chapters"
+id = "chapter-menu"
+name = "Chapter Menu"
 description = "Browse the chapters of a podcast or iTunes U episode, or of the playing track, from its context menu and jump to one."
 version = "0.1.0"
 author = "RevolaOS"
