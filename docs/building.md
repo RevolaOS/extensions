@@ -31,6 +31,7 @@ They need Python 3 and a C compiler with AddressSanitizer and UndefinedBehaviorS
 | Appearance | the theme file reader (records, lz streams, derivations, recovery), the bitmaps a theme holds for extensions and the provider that serves them, the theme folder scan, the colour mapping of the stock screens, tinted art and hook binding |
 | Chapter Marks | the crowding rule |
 | Chapter Menu | row, seek and play contracts |
+| Cover Grid | the cover box filter and the grid, lift and scrollbar geometry |
 | Compressor, Crossfeed, Channels | an integer model of Rockbox's loops |
 | Equalizer | the filter engine |
 | File Info | row and formatting contracts |

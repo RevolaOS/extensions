@@ -1,0 +1,17 @@
+id = "cover-grid"
+name = "Cover Grid"
+description = "Browse albums as a grid of covers next to Cover Flow, in Music and on the main menu."
+version = "0.1.0"
+author = "RevolaOS"
+license = "GPL-3.0-only"
+api = "1.50"
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
+
+[[module]]
+name = "grid"
+trigger = "screen"
+screens = ["grid"]

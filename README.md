@@ -10,6 +10,7 @@ First-party RevolaOS extensions. One directory per extension, each with its own 
 | `chapter-menu` | Chapter Menu | Chapter list of a podcast, iTunes U episode or the playing track; choosing one plays from there | on |
 | `clicker-modes` | Clicker Modes | Click wheel sound on the speaker, headphones, both or off | on |
 | `compressor` | Compressor | Rockbox's compressor with a graphical editor | off |
+| `cover-grid` | Cover Grid | Albums as a grid of covers, in Music and on the main menu | off |
 | `crossfeed` | Crossfeed | Rockbox's crossfeed for headphones, Simple or Custom | off |
 | `equalizer` | Equalizer | Apple's EQ presets without distortion, and a five-band Custom preset | on |
 | `eu-volume-limit` | EU Volume Limit | Full volume range with the EU limit switched off | on |
