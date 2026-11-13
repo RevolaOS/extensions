@@ -20,4 +20,4 @@ screens = ["editor"]
 [[asset]]
 name = "settings-eq"
 file = "assets/settings-eq.png"
-menu = true
+pane = "icon"

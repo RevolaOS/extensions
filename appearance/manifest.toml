@@ -19,27 +19,27 @@ trigger = "manual"
 [[asset]]
 name = "settings-appearance"
 file = "assets/settings-appearance.png"
-menu = true
+pane = "icon"
 
 [[asset]]
 name = "settings-theme"
 file = "assets/settings-theme.png"
-menu = true
+pane = "icon"
 
 [[asset]]
 name = "settings-moon"
 file = "assets/settings-moon.png"
-menu = true
+pane = "icon"
 
 [[asset]]
 name = "settings-accent"
 file = "assets/settings-accent.png"
-menu = true
+pane = "icon"
 
 [[asset]]
 name = "settings-covers"
 file = "assets/settings-covers.png"
-menu = true
+pane = "icon"
 
 [[asset]]
 name = "classic"

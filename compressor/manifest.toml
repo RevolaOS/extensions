@@ -20,4 +20,4 @@ screens = ["editor"]
 [[asset]]
 name = "settings-compressor"
 file = "assets/settings-compressor.png"
-menu = true
+pane = "icon"

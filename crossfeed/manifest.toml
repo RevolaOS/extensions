@@ -20,4 +20,4 @@ screens = ["editor"]
 [[asset]]
 name = "settings-crossfeed"
 file = "assets/settings-crossfeed.png"
-menu = true
+pane = "icon"
