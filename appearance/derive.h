@@ -24,9 +24,10 @@ int derive_relight(uint32_t asset, const struct layout *b, const int32_t *rule, 
  * same size, neither a mask, and a paletted bitmap needs room for the
  * source's colours. */
 int derive_alias(uint32_t asset, const struct layout *b, uint32_t source);
-/* A tinted paletted or ARGB bitmap without a record: its alpha becomes the
- * coverage tint_refresh paints with, from the stock alpha or, with
- * `darkness`, from alpha x (255 - luma) / 255. */
-int derive_coverage(uint32_t asset, const struct layout *b, int darkness);
+/* A tinted bitmap without a record: its coverage as the tint paints it. On a
+ * paletted or ARGB bitmap the alpha, as it is or, with `darkness`, scaled to
+ * alpha x (255 - luma) / 255; with `solid` every level from RVT_SOLID_FLOOR
+ * up becomes full, on a mask's levels too. A mask takes `solid` only. */
+int derive_coverage(uint32_t asset, const struct layout *b, int darkness, int solid);
 
 #endif

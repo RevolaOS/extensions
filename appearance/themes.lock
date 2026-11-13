@@ -1,3 +1,3 @@
 # The themes repository commit that rvt.h, catalog.json and build/classic.rvt
 # come from: `make vendor THEMES=...` copies the first two, `make lock` writes this.
-commit = "8194551337ef82a2fa48db286f90afb81a534a20"
+commit = "c6fd085c7f262a75b0e389226448e8d2a2766ba1"

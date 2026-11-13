@@ -329,27 +329,55 @@ int derive_alias(uint32_t asset, const struct layout *b, uint32_t source)
     return 1;
 }
 
-/* One BGRA colour's alpha as tint coverage: as it is, or scaled by how dark
- * the colour is when the tint reads coverage from darkness. */
-static void coverage_of(uint8_t *bgra, int darkness)
+/* A coverage level of `full` with the solid floor applied: full from the
+ * floor up, the floor scaled to the level range. */
+static unsigned solid_level(unsigned level, unsigned full)
+{
+    return level * FULL >= RVT_SOLID_FLOOR * full ? full : level;
+}
+
+/* One BGRA colour's alpha as tint coverage: as it is, scaled by how dark the
+ * colour is when the tint reads coverage from darkness, or made full from the
+ * floor up when it is solid. */
+static void coverage_of(uint8_t *bgra, int darkness, int solid)
 {
     if (darkness)
         bgra[3] = (uint8_t)div255((unsigned)bgra[3] * (unsigned)(255 - luma(bgra)));
+    if (solid)
+        bgra[3] = (uint8_t)solid_level(bgra[3], FULL);
 }
 
-int derive_coverage(uint32_t asset, const struct layout *b, int darkness)
+static void solid_mask(const struct layout *b, uint8_t *row)
+{
+    for (uint32_t y = 0; y < b->height; y++, row += b->stride)
+        for (uint32_t x = 0; x < b->width; x++) {
+            if (b->depth == 8) {
+                row[x] = (uint8_t)solid_level(row[x], FULL);
+            } else {
+                unsigned shift = x % 2 ? 0 : 4;
+                unsigned level = solid_level((row[x / 2] >> shift) & 15, 15);
+                row[x / 2] = (uint8_t)((row[x / 2] & ~(15u << shift)) | level << shift);
+            }
+        }
+}
+
+int derive_coverage(uint32_t asset, const struct layout *b, int darkness, int solid)
 {
     uint8_t *data = main_module->catalog_data(asset);
-    if (b->mask || is_565(b))
+    if (is_565(b) || (b->mask && (darkness || !solid)))
         return 0;
+    if (b->mask) {
+        solid_mask(b, data + b->pixels);
+        return 1;
+    }
     if (b->colors) {
         for (uint32_t i = 0; i < b->colors; i++)
-            coverage_of(data + b->start + i * 4, darkness);
+            coverage_of(data + b->start + i * 4, darkness, solid);
         return 1;
     }
     uint8_t *row = data + b->pixels;
     for (uint32_t y = 0; y < b->height; y++, row += b->stride)
         for (uint32_t x = 0; x < b->width; x++)
-            coverage_of(row + x * 4, darkness);
+            coverage_of(row + x * 4, darkness, solid);
     return 1;
 }

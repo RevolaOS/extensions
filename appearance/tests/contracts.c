@@ -415,6 +415,7 @@ static void build_bank(void)
 {
     uint8_t *p = host_bank;
     bmap(p, 8, 4, 8, 4, 2, MASK_BYTES);
+    memcpy(p + HEADER, (uint8_t[]){0, 149, 150, 255, 1, 2, 3, 4}, 8);
     p = host_bank + AT_PALETTED;
     bmap(p, 0x64, 4, 8, 4, 2, PALETTED_BYTES);
     put32(p + HEADER, 2);
@@ -856,6 +857,25 @@ static void reader_contracts(void)
     build(&b, NULL, 0, tint);
     assert(!apply(&b, assets));
     tint[SECOND] = 0;
+
+    /* Solid coverage rewrites a mask's stock levels: full from the floor up,
+     * the rest kept; on a palette it rounds the alpha the same way. Both
+     * coverage bits together are invalid. */
+    tint[MASK] = (RVT_TINT_ROLE + RVT_ROLE_TEXT) | RVT_TINT_SOLID;
+    build(&b, NULL, 0, tint);
+    assert(apply(&b, assets) && bit_test(assets, MASK));
+    assert(!memcmp(catalog_data(MASK) + HEADER, (uint8_t[]){0, 149, 255, 255, 1, 2, 3, 4}, 8));
+    reset_bank();
+    tint[MASK] = (RVT_TINT_ROLE + RVT_ROLE_TEXT) | RVT_TINT_SOLID | RVT_TINT_DARKNESS;
+    build(&b, NULL, 0, tint);
+    assert(!apply(&b, assets));
+    tint[MASK] = 0;
+    tint[PALETTED] = (RVT_TINT_ROLE + RVT_ROLE_TEXT) | RVT_TINT_SOLID;
+    build(&b, NULL, 0, tint);
+    assert(apply(&b, assets) && bit_test(assets, PALETTED));
+    assert(catalog_data(PALETTED)[at_data(PALETTED) + 3] == 255 && catalog_data(PALETTED)[at_data(PALETTED) + 7] == 255);
+    reset_bank();
+    tint[PALETTED] = 0;
 
     /* Recolour: a swap is two lookups against the stock colours, not a chain;
      * RGB565 colours must be exact; ARGB pixels are keyed like palette

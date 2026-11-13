@@ -35,9 +35,10 @@ static int style_valid(const uint8_t *style, uint32_t catalog_count)
             return 0;
     p = style + RVT_STYLE_TINTS;
     for (unsigned i = 0; i < RVT_CATALOG_MAX; i++) {
-        unsigned tint = p[i] & ~RVT_TINT_DARKNESS;
-        if (tint >= RVT_TINT_ROLE + RVT_ROLES || (p[i] != tint && tint == RVT_TINT_NONE) ||
-            (p[i] && i >= catalog_count))
+        unsigned coverage = p[i] & (RVT_TINT_DARKNESS | RVT_TINT_SOLID);
+        unsigned tint = p[i] & ~coverage;
+        if (coverage == (RVT_TINT_DARKNESS | RVT_TINT_SOLID) || tint >= RVT_TINT_ROLE + RVT_ROLES ||
+            (coverage && tint == RVT_TINT_NONE) || (p[i] && i >= catalog_count))
             return 0;
     }
     return 1;
@@ -312,18 +313,20 @@ int pack_apply(struct pack *pack, uint32_t *written, const uint32_t *current)
             goto done;
     }
     /* Tinted paletted and ARGB bitmaps without a record are tinted stock art:
-     * their coverage is prepared here; masks are coloured while drawing. */
+     * their coverage is prepared here. Masks are coloured while drawing and
+     * keep their stock levels unless the coverage is solid. */
     for (uint32_t i = 0; i < RVT_CATALOG_MAX; i++) {
         struct layout b;
+        uint8_t tint = tint_bytes(pack)[i];
         if (!bit_test(pending, i))
             continue;
         if (!main_module->catalog_layout(i, &b))
             goto done;
-        if (b.mask)
+        if (b.mask && !(tint & RVT_TINT_SOLID))
             continue;
         bit_set(written, i);
         if (!stock_ready(i, &b, current) ||
-            !derive_coverage(i, &b, (tint_bytes(pack)[i] & RVT_TINT_DARKNESS) != 0))
+            !derive_coverage(i, &b, (tint & RVT_TINT_DARKNESS) != 0, (tint & RVT_TINT_SOLID) != 0))
             goto done;
     }
     ok = 1;

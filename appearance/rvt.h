@@ -100,10 +100,12 @@ enum rvt_accent_slot {
 #define RVT_FLAG_FLAT_ICONS 8 /* extension menu icons without their reflection */
 
 /* Tint bytes: RVT_TINT_ROLE plus an rvt_role. A reader packs them two per
- * byte, so they stay below 16. */
+ * byte, so they stay below 16. One coverage bit may be or-ed into the byte. */
 #define RVT_TINT_NONE 0
 #define RVT_TINT_ROLE 1
-#define RVT_TINT_DARKNESS 0x80 /* coverage from darkness, or-ed into the byte */
+#define RVT_TINT_DARKNESS 0x80 /* coverage from darkness */
+#define RVT_TINT_SOLID 0x40    /* coverage at or above RVT_SOLID_FLOOR becomes full */
+#define RVT_SOLID_FLOOR 150    /* of 255; a 4-bit mask level at or above 150 x 15 / 255 */
 
 /* Catalog bitmaps a pack can address: records and tint bytes index them. */
 #define RVT_CATALOG_MAX 640
