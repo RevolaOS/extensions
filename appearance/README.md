@@ -23,11 +23,11 @@ The accents are Blue, Teal, Green, Yellow, Orange, Red, Pink, Purple and Graphit
 
 ## Layout
 
-The `main` module is resident: the bitmap catalog, the colour roles, the draw hooks (bound only while a look other than stock light is on), the index of the look's bitmaps for extensions with the provider that reads them from its file when the core decodes one, the Theme list and the settings. The `switch` module is loaded for a switch, an accent change or unload: it reads the theme file, derives artwork, restores stock bitmaps from the firmware file and is unloaded again. `rvt.h` and `catalog.json` are the themes repository's, at the commit in `themes.lock`; `build/classic.rvt`, the Classic dark artwork, is compiled from the same checkout.
+The `main` module is always loaded: the bitmap catalog, the colour roles, the draw hooks (bound only while a look other than stock light is on), the index of the look's bitmaps for extensions with the provider that reads them from its file when the core decodes one, the Theme list and the settings. The `switch` module reads the theme file, derives artwork and restores stock bitmaps from the firmware file for a switch, an accent change or unload; it stays loaded while Settings > Extensions > Optimize keeps optional modules and is unloaded again otherwise. `rvt.h` and `catalog.json` are the themes repository's, at the commit in `themes.lock`; `build/classic.rvt`, the Classic dark artwork, is compiled from the same checkout.
 
 | | |
 |---|---|
 | Default | off |
-| Memory | idle: the main module with the bitmap catalog and its state; a look on: an index entry per bitmap the theme holds for extensions and the draw hook blocks; during a switch: the switch module and one scratch block; the Theme list open: one entry per theme |
+| Memory | idle: the main module with the bitmap catalog and its state; a look on: an index entry per bitmap the theme holds for extensions and the draw hook blocks; during a switch, or always under Optimize's Performance: the switch module; during a switch: one scratch block; the Theme list open: one entry per theme |
 | Settings | theme id, Dark Mode, Accent Color, Menu Covers, and `available`, the hidden bool that shows the Appearance row |
 | Minimum SDK | 1.47 |

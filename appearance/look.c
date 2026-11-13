@@ -13,7 +13,7 @@
 #include <stddef.h>
 
 struct look_state look_state;
-static int switcher_loaded;       /* the switch module is loaded until finish lets it go */
+static int switcher_loaded;       /* the switch module is held until finish releases it */
 static int busy;                 /* a switch is writing settings */
 static int theming_off;          /* a restore failed: no theming until the next boot */
 static const char *problem;      /* what the last switch could not do */
