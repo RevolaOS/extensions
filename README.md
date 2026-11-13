@@ -16,6 +16,7 @@ First-party RevolaOS extensions. One directory per extension, each with its own 
 | `eu-volume-limit` | EU Volume Limit | Full volume range with the EU limit switched off | on |
 | `fast-seek` | Fast Seek | Seeks in AAC and Apple Lossless files jump to the target instead of stepping through every frame | on |
 | `file-info` | File Info | Tags and file properties of a song, episode, audiobook or video | on |
+| `homebrew` | Homebrew | Apps and games from `/Revola/Apps/` and `/Revola/Games/` under Extras, started without an Apple signature | on |
 | `iap-auth-bypass` | iAP Auth Bypass | Authentication-gated iAP commands without an Apple authentication chip | on |
 | `long-audio-fix` | Long Audio Fix | AAC and Apple Lossless files longer than 13.5 hours play to the end | on |
 | `playback-queue` | Playback Queue | Play Next, Play Last and a queue to reorder | on |

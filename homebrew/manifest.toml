@@ -1,0 +1,13 @@
+id = "homebrew"
+name = "Homebrew"
+description = "Apps and games from /Revola/Apps and /Revola/Games: apps under Extras > Apps, games under Extras > Games, launched without an Apple signature."
+version = "0.1.0"
+author = "RevolaOS"
+note = "Adapted from RepriseOS"
+license = "GPL-3.0-only"
+api = "1.51"
+stability = "beta"
+
+[[module]]
+name = "main"
+trigger = "always"
