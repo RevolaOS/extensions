@@ -9,7 +9,7 @@ editor_SOURCES := editor.c labels.c curve.c
 ifndef SDK
 $(error set SDK to an unpacked revola SDK)
 endif
-include $(SDK)/rv.mk
+include $(SDK)/extension/rv.mk
 
 .PHONY: check
 check:

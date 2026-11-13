@@ -26,9 +26,9 @@ $(EXTENSIONS):
 # line: what a theme must match to replace one. The themes repository vendors
 # it as rvt/data/extensions.json.
 $(DIST)/assets.json: $(EXTENSIONS)
-	cat $(SDK)/assets.json > $@
+	cat $(SDK)/extension/assets.json > $@
 	for extension in $(EXTENSIONS); do \
-		python3 $(SDK)/assets.py $$extension/manifest.toml $(DIST)/$$extension.rvx >> $@ || exit 1; \
+		python3 $(SDK)/extension/assets.py $$extension/manifest.toml $(DIST)/$$extension.rvx >> $@ || exit 1; \
 	done
 
 check:

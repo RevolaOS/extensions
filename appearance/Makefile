@@ -14,7 +14,7 @@ EXTRA_CFLAGS := -I$(OUT)
 ifndef SDK
 $(error set SDK to an unpacked revola SDK)
 endif
-include $(SDK)/rv.mk
+include $(SDK)/extension/rv.mk
 
 $(OUT)/catalog.inc: catalog.json tools/catalog_inc.py | $(OUT)
 	python3 tools/catalog_inc.py $< $@

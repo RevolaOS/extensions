@@ -20,7 +20,13 @@ def build(work, name, sources, *flags):
     library = work / name
     subprocess.run(
         ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-g", "-shared", "-fPIC"]
-        + ["-fsanitize=undefined", "-fno-sanitize-recover=undefined", f"-I{sdk}", *flags]
+        + [
+            "-fsanitize=undefined",
+            "-fno-sanitize-recover=undefined",
+            f"-I{sdk}",
+            f"-I{sdk}/extension",
+            *flags,
+        ]
         + [str(source) for source in sources]
         + ["-o", str(library)],
         check=True,
@@ -33,10 +39,21 @@ def run_engine_test(work):
     program = work / "engine_test"
     subprocess.run(
         ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-g"]
-        + ["-fsanitize=undefined", "-fno-sanitize-recover=undefined", f"-I{sdk}"]
+        + [
+            "-fsanitize=undefined",
+            "-fno-sanitize-recover=undefined",
+            f"-I{sdk}",
+            f"-I{sdk}/extension",
+        ]
         + ["-D_FORTIFY_SOURCE=0"]  # macOS string.h would wrap what rv_libc.h declares
         + [str(root / "engine_test.c"), str(root.parent / "cascade.c")]
-        + [str(root.parent / "biquad.c"), str(sdk / "rv_math.c"), "-lm", "-o", str(program)],
+        + [
+            str(root.parent / "biquad.c"),
+            str(sdk / "extension/rv_math.c"),
+            "-lm",
+            "-o",
+            str(program),
+        ],
         check=True,
     )
     subprocess.run([str(program)], check=True)
@@ -193,6 +210,10 @@ def biquad_tests(dll):
 sdk = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="equalizer-tests-") as name:
     work = Path(name)
-    biquad_tests(build(work, "biquad.so", [root.parent / "biquad.c", sdk / "rv_math.c"]))
+    biquad_tests(
+        build(
+            work, "biquad.so", [root.parent / "biquad.c", sdk / "extension/rv_math.c"]
+        )
+    )
     run_engine_test(work)
 print("Equalizer tests passed")

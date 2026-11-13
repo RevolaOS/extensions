@@ -9,7 +9,7 @@ editor_SOURCES := editor.c response.c labels.c modes.c
 ifndef SDK
 $(error set SDK to an unpacked revola SDK)
 endif
-include $(SDK)/rv.mk
+include $(SDK)/extension/rv.mk
 
 .PHONY: check
 check:

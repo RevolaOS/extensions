@@ -4,7 +4,7 @@ First-party extensions follow the [principles](../STYLE.md) of every RevolaOS re
 
 ## One directory per extension
 
-Each directory holds `manifest.toml`, a `Makefile` that includes the SDK's `rv.mk`, the sources, optional `assets/` and `tests/`, and a `README.md`. The directory name is the manifest id.
+Each directory holds `manifest.toml`, a `Makefile` that includes the SDK's `extension/rv.mk`, the sources, optional `assets/` and `tests/`, and a `README.md`. The directory name is the manifest id.
 
 ## README
 

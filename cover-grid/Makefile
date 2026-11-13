@@ -7,7 +7,7 @@ grid_SOURCES := grid.c scale.c
 ifndef SDK
 $(error set SDK to an unpacked revola SDK)
 endif
-include $(SDK)/rv.mk
+include $(SDK)/extension/rv.mk
 
 .PHONY: check
 check:

@@ -25,7 +25,7 @@ def build(work, name, sources):
     subprocess.run(
         ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-g", "-shared", "-fPIC"]
         + ["-fsanitize=undefined", "-fno-sanitize-recover=undefined"]
-        + [f"-I{sdk}", f"-I{root.parent}", "-D_FORTIFY_SOURCE=0"]
+        + [f"-I{sdk}", f"-I{sdk}/extension", f"-I{root.parent}", "-D_FORTIFY_SOURCE=0"]
         + [str(source) for source in sources]
         + ["-o", str(library)],
         check=True,
@@ -265,7 +265,7 @@ def process_tests(dll):
 sdk = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="channels-tests-") as name:
     work = Path(name)
-    sources = [root / "host.c", sdk / "rv_libc.c"] + [
+    sources = [root / "host.c", sdk / "extension/rv_libc.c"] + [
         root.parent / name for name in ("channels.c", "labels.c", "modes.c")
     ]
     dll = build(work, "channels.so", sources)

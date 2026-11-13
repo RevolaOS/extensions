@@ -17,7 +17,11 @@ sdk = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="appearance-tests-") as name:
     work = Path(name)
     for header in ("rv_api.h", "rv_libc.h", "rv_ui.h", "rv_sites.h", "osos-2.0.5.h"):
-        (work / header).write_text((sdk / header).read_text())
+        (work / header).write_text(
+            (
+                sdk / ("extension/" + header if header.startswith("rv_") else header)
+            ).read_text()
+        )
     executable = work / "contracts"
     subprocess.run(
         [
