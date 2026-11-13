@@ -163,10 +163,10 @@ enum rvt_relight {
 /* Alias records are applied after the other records of a pack. */
 #define RVT_ALIASES_MAX 16
 
-/* Extension bitmaps: {u32 owner, u32 asset, u32 kind, u32 payload bytes} then
- * the payload, 4-byte padded: a bitmap's BMap header followed by its rows raw
- * or as one lz stream. */
-#define RVT_EXTENSION_BITMAP_BYTES 16
+/* Extension bitmaps: {u32 owner, u32 asset, u32 kind, u32 stored, u32 decoded}
+ * then the payload, 4-byte padded: the whole BMap, header and rows, raw or as
+ * one lz stream of `stored` bytes that decodes to `decoded`. */
+#define RVT_EXTENSION_BITMAP_BYTES 20
 #define RVT_BMAP_HEADER_BYTES 28
 enum rvt_extension_kind {
     RVT_EXTENSION_BITMAP = 1,

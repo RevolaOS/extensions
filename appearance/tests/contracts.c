@@ -474,7 +474,7 @@ static void prefix_plain(uint8_t *p)
 
 /* Extension bitmaps appended to every pack written while `asset_table` is set. */
 struct asset_payload {
-    uint32_t owner, asset, kind, size;
+    uint32_t owner, asset, kind, size, decoded;
     const uint8_t *payload;
 };
 static const struct asset_payload *asset_table;
@@ -507,6 +507,7 @@ static uint32_t write_pack(uint8_t *pack, const struct rec *recs, uint32_t count
         put32(p + 4, a->asset);
         put32(p + 8, a->kind);
         put32(p + 12, a->size);
+        put32(p + 16, a->decoded);
         p += RVT_EXTENSION_BITMAP_BYTES;
         memcpy(p, a->payload, a->size);
         memset(p + a->size, 0, PAD(a->size));
@@ -1288,11 +1289,12 @@ static void switch_contracts(void)
 #define MENU_BMAP_BYTES (HEADER + MENU_ROWS)
 #define LZ_BOUND(n) ((n) + ((n) + 7) / 8)
 static uint8_t menu_a[MENU_BMAP_BYTES], menu_b[MENU_BMAP_BYTES];
-/* menu_lz: the header, then a literal 0xab and one match of 9,679 bytes from
- * one byte back: 15 + 3, extended by 37 bytes of 255 and one of 226. */
-static uint8_t menu_lz[HEADER + 4 + 38];
+/* menu_lz: the header and a 0xab as 29 literals (four flag bytes), then one
+ * match of 9,679 bytes from one byte back: 15 + 3, extended by 37 bytes of
+ * 255 and one of 226. */
+static uint8_t menu_lz[4 + HEADER + 1 + 2 + 38];
 /* A canvas bitmap: 4 by 2 Indexed8 with two colours, raw and as literals. */
-static uint8_t small[PALETTED_BYTES], small_lz[HEADER + LZ_BOUND(PALETTED_BYTES - HEADER)];
+static uint8_t small[PALETTED_BYTES], small_lz[LZ_BOUND(PALETTED_BYTES)];
 
 /* `n` bytes as an lz stream of literals: a flag byte per eight. */
 static uint32_t lz_literals(uint8_t *out, const uint8_t *in, uint32_t n)
@@ -1314,22 +1316,28 @@ static void asset_payloads(void)
         menu_a[i] = (uint8_t)(i * 7);
         menu_b[i] = (uint8_t)(i * 3 + 1);
     }
-    memcpy(menu_lz, menu_a, HEADER);
-    menu_lz[HEADER] = 0x02;
-    menu_lz[HEADER + 1] = 0xab;
-    menu_lz[HEADER + 2] = 0xf0;
-    menu_lz[HEADER + 3] = 0x00;
-    memset(menu_lz + HEADER + 4, 255, 37);
-    menu_lz[HEADER + 41] = 226;
+    uint8_t *lz = menu_lz;
+    for (uint32_t group = 0; group < 3; group++) {
+        *lz++ = 0;
+        memcpy(lz, menu_a + 8 * group, 8);
+        lz += 8;
+    }
+    *lz++ = 0x20; /* four header literals, the 0xab, then the match */
+    memcpy(lz, menu_a + 24, 4);
+    lz += 4;
+    *lz++ = 0xab;
+    *lz++ = 0xf0;
+    *lz++ = 0x00;
+    memset(lz, 255, 37);
+    lz[37] = 226;
+    assert(lz + 38 == menu_lz + sizeof menu_lz);
     bmap(small, BMapFormat_Indexed8, 4, 8, 4, 2, sizeof small);
     put32(small + HEADER, 2);
     memcpy(small + HEADER + 4, LIGHT, 4);
     memcpy(small + HEADER + 8, ICON, 4);
     for (uint32_t i = 0; i < 8; i++)
         small[HEADER + 12 + i] = (uint8_t)(i & 1);
-    memcpy(small_lz, small, HEADER);
-    assert(lz_literals(small_lz + HEADER, small + HEADER, sizeof small - HEADER) ==
-           sizeof small_lz - HEADER);
+    assert(lz_literals(small_lz, small, sizeof small) == sizeof small_lz);
 }
 
 static void with_assets(const struct asset_payload *table, uint32_t count, struct built *b)
@@ -1344,47 +1352,54 @@ static void with_assets(const struct asset_payload *table, uint32_t count, struc
 static void prefix_custom(uint8_t *p, const uint8_t roles[RVT_ROLES][3], uint32_t flags,
                           unsigned palette, const uint8_t accent[RVT_ACCENT_SLOTS][3]);
 
-/* The core's fill of a probed block: 1 when the provider filled `bytes` of
- * `block` with the asset; the block is the caller's. */
-static int fill(uint32_t owner, uint32_t asset, uint8_t *block, uint32_t bytes)
+/* 1 when the probe answers the asset with exactly this stream. */
+static int probe(uint32_t owner, uint32_t asset, uint8_t codec, uint32_t stored, uint32_t bytes)
 {
-    memset(block, 0x5a, bytes);
-    return replace(owner, asset, block, bytes);
+    struct rv_asset_stream stream = {0xff, 0, 0};
+    return replacement(owner, asset, &stream) && stream.codec == codec &&
+           stream.stored == stored && stream.bytes == bytes;
+}
+
+/* The core's read of a probed stream: 1 when the provider copied `stored`
+ * bytes of the asset into `block`; the block is the caller's. */
+static int read_stored(uint32_t owner, uint32_t asset, uint8_t *block, uint32_t stored)
+{
+    memset(block, 0x5a, stored);
+    return replacement_read(owner, asset, block, stored);
 }
 
 static void assets_contracts(void)
 {
-    static uint8_t block[MENU_BMAP_BYTES], zeros[MENU_BMAP_BYTES], edited[MENU_BMAP_BYTES];
+    static uint8_t block[MENU_BMAP_BYTES], zeros[MENU_BMAP_BYTES];
     uint32_t assets[BITMAP_WORDS];
     struct built b;
     asset_payloads();
     const struct asset_payload four[4] = {
-        {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, menu_a},
-        {OWNER_A, 9, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz, menu_lz},
-        {OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof small, small},
-        {OWNER_B, 2, RVT_EXTENSION_BITMAP_LZ, sizeof small_lz, small_lz},
+        {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, MENU_BMAP_BYTES, menu_a},
+        {OWNER_A, 9, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz, MENU_BMAP_BYTES, menu_lz},
+        {OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof small, PALETTED_BYTES, small},
+        {OWNER_B, 2, RVT_EXTENSION_BITMAP_LZ, sizeof small_lz, PALETTED_BYTES, small_lz},
     };
 
-    /* A good table: one entry per asset, in order, each header's offset in
+    /* A good table: one entry per asset, in order, each payload's offset in
      * the file, the stored bytes, the decoded bytes and the kind. */
     with_assets(four, 4, &b);
     assert(apply(&b, assets) && live_count == 4 && allocations == 1);
     for (unsigned i = 0; i < 4; i++) {
         assert(live[i].owner == four[i].owner && live[i].asset == four[i].asset);
         assert(live[i].kind == four[i].kind && live[i].bytes == four[i].size);
-        assert(live[i].decoded == HEADER + le32(four[i].payload + 24));
+        assert(live[i].decoded == four[i].decoded);
         assert(!memcmp(b.bytes + live[i].offset, four[i].payload, four[i].size));
     }
     assert(live[0].offset == RVT_HEADER_BYTES + RVT_PACK_HEADER_BYTES + RVT_STYLE_BYTES + RVT_EXTENSION_BITMAP_BYTES);
-    assert(live[1].decoded == MENU_BMAP_BYTES && live[3].decoded == PALETTED_BYTES);
 
     /* Refused, the index that was on staying: out of order or repeated keys;
-     * a kind that is not a bitmap; an entry shorter than a header; a header
-     * whose bounds are not a rectangle, whose rows overrun the stride or
-     * whose payload word is over the cap or under the rows; a raw payload of
-     * another size than the header says; an empty lz stream or one over the
-     * literal bound; padding that is not zero; a count the body does not
-     * hold, one that leaves a table unread, and a table past the limit. */
+     * a kind that is not a bitmap; a decoded size that is no more than a
+     * header or over the cap; a raw payload of another size than decoded; an
+     * empty lz stream or one over the literal bound; padding that is not
+     * zero; a count the body does not hold, one that leaves a table unread,
+     * and a table past the limit. The bitmap itself is the core's to check
+     * once decoded. */
     struct asset_payload bad[4];
     memcpy(bad, four, sizeof bad);
     bad[0] = four[1], bad[1] = four[0];
@@ -1406,75 +1421,34 @@ static void assets_contracts(void)
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
     memcpy(bad, four, sizeof bad);
-    bad[2].size = HEADER - 1;
+    bad[2].size = bad[2].decoded = HEADER; /* a header without rows */
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    put32(edited + 24, 0); /* a header without rows, as the compiler refuses it */
-    bad[2] = (struct asset_payload){OWNER_B, 1, RVT_EXTENSION_BITMAP, HEADER, edited};
+    memcpy(bad, four, sizeof bad);
+    bad[2].size = sizeof small - 1; /* a raw payload of another size */
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    bad[2] = (struct asset_payload){OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof edited, edited};
-    put32(edited + 16, (uint32_t)-1); /* bottom above top */
+    bad[2].size = sizeof small, bad[2].decoded = PALETTED_BYTES + 4;
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    put32(edited + 8, (uint32_t)-1); /* a negative top */
+    memcpy(bad, four, sizeof bad);
+    bad[1].decoded = RVT_EXTENSION_BITMAP_MAX_BYTES + 1; /* over the cap */
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    put16(edited + 4, 72); /* 78 pixels of 8 bits in a 72-byte stride */
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    put32(edited + 24, MENU_ROWS - 1); /* rows past the payload word */
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    put32(edited + 24, MENU_ROWS + 1); /* a raw payload of another size */
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    bad[2].size = sizeof edited - 1;
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    memcpy(edited, menu_a, sizeof edited);
-    put16(edited, 0x9); /* no such format */
-    bad[2] = (struct asset_payload){OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof edited, edited};
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    memcpy(edited, small, sizeof small);
-    put32(edited + HEADER, 5); /* five colours do not fit a 20-byte payload with eight pixels */
-    bad[2] = (struct asset_payload){OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof small, edited};
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    put32(edited + HEADER, 300); /* past a palette's 256 */
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    put32(edited + HEADER, 3); /* a third colour, in place of a pixel row */
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    memcpy(edited, menu_lz, sizeof menu_lz);
-    bad[2] = (struct asset_payload){OWNER_B, 1, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz, edited};
-    put32(edited + 24, RVT_EXTENSION_BITMAP_MAX_BYTES - HEADER + 1); /* over the cap */
-    with_assets(bad, 4, &b);
-    assert(!apply(&b, assets));
-    put32(edited + 24, RVT_EXTENSION_BITMAP_MAX_BYTES - HEADER); /* at it: the provider decides */
+    bad[1].decoded = RVT_EXTENSION_BITMAP_MAX_BYTES; /* at it: the core decides */
     with_assets(bad, 4, &b);
     assert(apply(&b, assets) && live_count == 4);
     memcpy(bad, four, sizeof bad);
-    bad[1].size = HEADER;
+    bad[1].size = 0;
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
-    static uint8_t overlong[HEADER + LZ_BOUND(MENU_ROWS) + 1];
-    memcpy(overlong, menu_a, HEADER);
+    static uint8_t overlong[LZ_BOUND(MENU_BMAP_BYTES) + 1];
     bad[1].size = sizeof overlong, bad[1].payload = overlong;
     with_assets(bad, 4, &b);
     assert(!apply(&b, assets));
     bad[1].size = sizeof overlong - 1;
     with_assets(bad, 4, &b);
-    assert(apply(&b, assets) && live_count == 4); /* parsed; the provider decides */
+    assert(apply(&b, assets) && live_count == 4); /* parsed; the core decides */
     memcpy(bad, four, sizeof bad);
     static uint8_t small_overlong[sizeof small_lz + 1];
     memcpy(small_overlong, small_lz, sizeof small_lz);
@@ -1496,7 +1470,7 @@ static void assets_contracts(void)
     static struct asset_payload many[RVT_EXTENSION_BITMAPS_MAX + 1];
     for (uint32_t i = 0; i < RVT_EXTENSION_BITMAPS_MAX + 1; i++)
         many[i] = (struct asset_payload){OWNER_A, i, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz,
-                                         menu_lz};
+                                         MENU_BMAP_BYTES, menu_lz};
     with_assets(many, RVT_EXTENSION_BITMAPS_MAX + 1, &b);
     assert(!apply(&b, assets));
     with_assets(many, RVT_EXTENSION_BITMAPS_MAX, &b);
@@ -1505,88 +1479,50 @@ static void assets_contracts(void)
     build(&b, NULL, 0, NULL);
     assert(apply(&b, assets) && !live_count && !allocations);
 
-    /* The probe answers the decoded size of a listed asset, 0 for any other;
-     * the fill puts the whole BMap, header and rows, raw or decoded, into a
-     * block of that size and nothing into one of another size. */
+    /* The probe answers how a listed asset is stored, nothing for any other;
+     * the read copies exactly the stored bytes and nothing for another size. */
     with_assets(four, 4, &b);
     assert(apply(&b, assets));
     provided = &b;
     memcpy(look_state.active.id, PROVIDED_ID, sizeof PROVIDED_ID);
-    assert(replacement_bytes(OWNER_A, 5) == MENU_BMAP_BYTES);
-    assert(replacement_bytes(OWNER_A, 9) == MENU_BMAP_BYTES);
-    assert(replacement_bytes(OWNER_B, 1) == PALETTED_BYTES);
-    assert(replacement_bytes(OWNER_B, 2) == PALETTED_BYTES);
-    assert(!replacement_bytes(OWNER_A, 7) && !replacement_bytes(OWNER_A, 4));
-    assert(!replacement_bytes(OWNER_B, 3) && !replacement_bytes(0, 5));
-    assert(fill(OWNER_A, 5, block, MENU_BMAP_BYTES) && !memcmp(block, menu_a, MENU_BMAP_BYTES));
-    assert(fill(OWNER_A, 9, block, MENU_BMAP_BYTES) && !memcmp(block, menu_a, HEADER));
-    for (uint32_t i = HEADER; i < MENU_BMAP_BYTES; i++)
-        assert(block[i] == 0xab);
-    assert(fill(OWNER_B, 1, block, PALETTED_BYTES) && !memcmp(block, small, PALETTED_BYTES));
-    assert(fill(OWNER_B, 2, block, PALETTED_BYTES) && !memcmp(block, small, PALETTED_BYTES));
-    assert(!fill(OWNER_A, 7, block, MENU_BMAP_BYTES));
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES - 1));
-    assert(!fill(OWNER_B, 1, block, MENU_BMAP_BYTES));
+    assert(probe(OWNER_A, 5, RV_ASSET_RAW, sizeof menu_a, MENU_BMAP_BYTES));
+    assert(probe(OWNER_A, 9, RV_ASSET_LZ, sizeof menu_lz, MENU_BMAP_BYTES));
+    assert(probe(OWNER_B, 1, RV_ASSET_RAW, sizeof small, PALETTED_BYTES));
+    assert(probe(OWNER_B, 2, RV_ASSET_LZ, sizeof small_lz, PALETTED_BYTES));
+    struct rv_asset_stream none;
+    assert(!replacement(OWNER_A, 7, &none) && !replacement(OWNER_A, 4, &none));
+    assert(!replacement(OWNER_B, 3, &none) && !replacement(0, 5, &none));
+    assert(read_stored(OWNER_A, 5, block, sizeof menu_a) && !memcmp(block, menu_a, sizeof menu_a));
+    assert(read_stored(OWNER_A, 9, block, sizeof menu_lz) && !memcmp(block, menu_lz, sizeof menu_lz));
+    assert(read_stored(OWNER_B, 1, block, sizeof small) && !memcmp(block, small, sizeof small));
+    assert(read_stored(OWNER_B, 2, block, sizeof small_lz) && !memcmp(block, small_lz, sizeof small_lz));
+    assert(!read_stored(OWNER_A, 7, block, MENU_BMAP_BYTES));
+    assert(!read_stored(OWNER_A, 5, block, sizeof menu_a - 1));
+    assert(!read_stored(OWNER_B, 1, block, sizeof menu_a));
     assert(!open_files && allocations == 1);
-    /* The file is not the one indexed: a header of the same size that the
-     * index would have refused, here a palette past the payload, is not
-     * served; the lz palette is checked once decoded. */
-    put32(b.bytes + live[2].offset + HEADER, 5);
-    assert(!fill(OWNER_B, 1, block, PALETTED_BYTES));
-    put32(b.bytes + live[2].offset + HEADER, 2);
-    assert(fill(OWNER_B, 1, block, PALETTED_BYTES));
-    b.bytes[live[3].offset + HEADER + 1] = 5; /* the colour count's literal */
-    assert(!fill(OWNER_B, 2, block, PALETTED_BYTES));
-    b.bytes[live[3].offset + HEADER + 1] = 2;
-    assert(fill(OWNER_B, 2, block, PALETTED_BYTES));
-    put32(b.bytes + live[0].offset + 24, MENU_ROWS - MENU_STRIDE); /* a payload word the rows overrun */
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES));
-    put32(b.bytes + live[0].offset + 24, MENU_ROWS);
-    assert(fill(OWNER_A, 5, block, MENU_BMAP_BYTES) && !open_files);
-    /* A file that no longer yields the bitmap: cut inside the header, inside
-     * a raw payload, inside an lz stream, a stream that ends before the rows
-     * are full, one that runs past them, and one with bytes after them. The
-     * fill says 0 and holds nothing. */
-    b.size = live[0].offset + 10;
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES));
+    /* A file that no longer holds the bytes: cut inside a raw payload or an
+     * lz stream. The read says 0 and holds nothing. */
     b.size = live[0].offset + 100;
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES));
-    b.size = live[1].offset + HEADER + 10;
-    assert(!fill(OWNER_A, 9, block, MENU_BMAP_BYTES));
-    struct asset_payload variant[4];
-    memcpy(variant, four, sizeof variant);
-    static uint8_t lz_short[HEADER + 2];
-    memcpy(lz_short, menu_a, HEADER);
-    lz_short[HEADER + 1] = 0xab;
-    variant[1].size = sizeof lz_short, variant[1].payload = lz_short;
-    with_assets(variant, 4, &b);
-    assert(apply(&b, assets) && !fill(OWNER_A, 9, block, MENU_BMAP_BYTES));
-    static uint8_t lz_long[sizeof menu_lz];
-    memcpy(lz_long, menu_lz, sizeof menu_lz);
-    lz_long[HEADER + 41] = 227;
-    variant[1].size = sizeof lz_long, variant[1].payload = lz_long;
-    with_assets(variant, 4, &b);
-    assert(apply(&b, assets) && !fill(OWNER_A, 9, block, MENU_BMAP_BYTES));
-    static uint8_t lz_trailing[sizeof menu_lz + 1];
-    memcpy(lz_trailing, menu_lz, sizeof menu_lz);
-    variant[1].size = sizeof lz_trailing, variant[1].payload = lz_trailing;
-    with_assets(variant, 4, &b);
-    assert(apply(&b, assets) && !fill(OWNER_A, 9, block, MENU_BMAP_BYTES));
+    assert(!read_stored(OWNER_A, 5, block, sizeof menu_a));
+    b.size = live[1].offset + 10;
+    assert(!read_stored(OWNER_A, 9, block, sizeof menu_lz));
     assert(!open_files && allocations == 1);
+    with_assets(four, 4, &b);
+    assert(apply(&b, assets));
     /* A theme file that is gone. */
     provided = NULL;
     unreadable = PROVIDED_ID;
-    assert(replacement_bytes(OWNER_A, 5) == MENU_BMAP_BYTES);
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES) && !open_files);
+    assert(probe(OWNER_A, 5, RV_ASSET_RAW, sizeof menu_a, MENU_BMAP_BYTES));
+    assert(!read_stored(OWNER_A, 5, block, sizeof menu_a) && !open_files);
     unreadable = NULL;
     provided = &b;
     /* Classic dark serves its bitmaps from the classic asset; Classic light
      * has no file. */
     memset(look_state.active.id, 0, sizeof look_state.active.id);
     look_state.active.dark = 1;
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES) && !open_files); /* the asset here holds none */
+    assert(!read_stored(OWNER_A, 5, block, sizeof menu_a) && !open_files); /* the asset here holds none */
     look_state.active.dark = 0;
-    assert(!fill(OWNER_A, 5, block, MENU_BMAP_BYTES) && !open_files);
+    assert(!read_stored(OWNER_A, 5, block, sizeof menu_a) && !open_files);
     memcpy(look_state.active.id, PROVIDED_ID, sizeof PROVIDED_ID);
 
     /* The extension's own bitmap is left alone, until a flat-icon look: then
@@ -1616,14 +1552,14 @@ static void assets_contracts(void)
      * keeps the index, another under the id or none ends it. */
     look_state.active.header_crc = le32(b.bytes + RVT_HEADER_CRC);
     look_volume_changed();
-    assert(replacement_bytes(OWNER_A, 5) == MENU_BMAP_BYTES && live_count == 4);
+    assert(probe(OWNER_A, 5, RV_ASSET_RAW, sizeof menu_a, MENU_BMAP_BYTES) && live_count == 4);
     struct built swapped;
     asset_table = four, asset_table_count = 4;
     build_file_at(&swapped, PROVIDED_ID, "Other", RVT_HEADER_BYTES, NULL, 0, NULL, 0, NULL, NULL);
     asset_table = NULL, asset_table_count = 0;
     provided = &swapped;
     look_volume_changed();
-    assert(!replacement_bytes(OWNER_A, 5));
+    assert(!replacement(OWNER_A, 5, &none));
     assert(!live_count && !allocations && !open_files);
     assert(apply(&b, assets) && live_count == 4);
     unreadable = PROVIDED_ID;
@@ -2342,7 +2278,7 @@ static void look_contracts(void)
      * the index; the end of disk mode keeps both until another file turns up
      * under the id; a provider another extension holds is said under Theme. */
     struct built with, flat, swapped;
-    const struct asset_payload one = {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, menu_a};
+    const struct asset_payload one = {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, MENU_BMAP_BYTES, menu_a};
     with_assets(&one, 1, &with);
     provided = &with;
     unreadable = NULL;

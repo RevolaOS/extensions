@@ -1,10 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
 #include "assets.h"
-#include "bmap.h"
 #include "ext.h"
 #include "look.h"
-#include "lz.h"
 #include "osos-2.0.5.h"
 #include "pixel.h"
 #include "rv_libc.h"
@@ -59,34 +57,32 @@ static const struct asset_entry *find(uint32_t owner, uint32_t asset)
     return NULL;
 }
 
-/* The core's probe: the size of the look's bitmap for the asset, from the index. */
-static uint32_t replacement_bytes(uint32_t owner, uint32_t asset)
+/* The core's probe: how the look stores its bitmap for the asset, from the
+ * index. */
+static int replacement(uint32_t owner, uint32_t asset, struct rv_asset_stream *stream)
 {
     const struct asset_entry *entry = find(owner, asset);
-    return entry ? entry->decoded : 0;
+    if (!entry)
+        return 0;
+    stream->codec = entry->kind == RVT_EXTENSION_BITMAP_LZ ? RV_ASSET_LZ : RV_ASSET_RAW;
+    stream->stored = entry->bytes;
+    stream->bytes = entry->decoded;
+    return 1;
 }
 
-/* The core's fill: the bitmap from the look's file, its header read and its
- * rows read or decoded behind it, and the header checked again over the
- * rows, since the file may not be the one that was indexed. A fill that
- * fails returns 0 and the core decodes the extension's own bitmap instead.
- * Nothing here binds or releases: the core is in the middle of a decode. */
-static int replace(uint32_t owner, uint32_t asset, void *bmap, uint32_t bytes)
+/* The core's read: the stored bitmap from the look's file. The core decodes
+ * and checks it; a read that fails returns 0 and the core decodes the
+ * extension's own bitmap instead. Nothing here binds or releases: the core
+ * is in the middle of a decode or a preload. */
+static int replacement_read(uint32_t owner, uint32_t asset, void *out, uint32_t stored)
 {
     struct rv_file *file;
     const struct asset_entry *entry = find(owner, asset);
-    uint32_t crc = 0, payload;
-    if (!entry || bytes != entry->decoded || !look_file_open(look_active(), &file))
+    if (!entry || stored != entry->bytes || !look_file_open(look_active(), &file))
         return 0;
-    uint8_t *rows = (uint8_t *)bmap + RVT_BMAP_HEADER_BYTES;
-    uint32_t row_bytes = bytes - RVT_BMAP_HEADER_BYTES;
-    int whole = api->file_seek(self, file, entry->offset) == RV_OK &&
-                read_exact(file, bmap, RVT_BMAP_HEADER_BYTES) &&
-                (entry->kind == RVT_EXTENSION_BITMAP_LZ
-                     ? lz_decode(file, entry->bytes - RVT_BMAP_HEADER_BYTES, rows, row_bytes, &crc)
-                     : read_exact(file, rows, row_bytes));
+    int whole = api->file_seek(self, file, entry->offset) == RV_OK && read_exact(file, out, stored);
     api->file_close(self, file);
-    return whole && bmap_header_valid(bmap, rows, &payload) && payload == row_bytes;
+    return whole;
 }
 
 /* An extension's Settings icon as the core decodes it: the art in the upper
@@ -95,7 +91,7 @@ enum { ICON_WIDTH = 78, ICON_HEIGHT = 121, ICON_STRIDE = 80, ICON_ART_ROWS = 79 
 
 static int menu_bitmap(const uint8_t *b, uint32_t bytes)
 {
-    return bytes == RVT_BMAP_HEADER_BYTES + ICON_STRIDE * ICON_HEIGHT &&
+    return bytes == BMap_payload + ICON_STRIDE * ICON_HEIGHT &&
            le16(b + BMap_format) == BMapFormat_Mask8 && le16(b + BMap_stride) == ICON_STRIDE &&
            le16(b + BMap_depth) == 8 && !le32(b + BMap_bounds) && !le32(b + BMap_bounds + 4) &&
            le32(b + BMap_bounds + 8) == ICON_HEIGHT && le32(b + BMap_bounds + 12) == ICON_WIDTH &&
@@ -110,12 +106,12 @@ static int adjust(uint32_t owner, uint32_t asset, void *bmap, uint32_t bytes)
     (void)asset;
     if (!(style_flags() & RVT_FLAG_FLAT_ICONS) || !menu_bitmap(bmap, bytes))
         return 0;
-    memset((uint8_t *)bmap + RVT_BMAP_HEADER_BYTES + ICON_ART_ROWS * ICON_STRIDE, 0,
+    memset((uint8_t *)bmap + BMap_payload + ICON_ART_ROWS * ICON_STRIDE, 0,
            (ICON_HEIGHT - ICON_ART_ROWS) * ICON_STRIDE);
     return 1;
 }
 
-static const struct rv_asset_provider provider = {replacement_bytes, replace, adjust};
+static const struct rv_asset_provider provider = {replacement, replacement_read, adjust};
 
 int assets_bind(void)
 {

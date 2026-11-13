@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 
 #include "pack.h"
-#include "bmap.h"
 #include "derive.h"
 #include "ext.h"
 #include "pixel.h"
@@ -139,15 +138,16 @@ struct alias {
     uint16_t asset, source;
 };
 
-/* The stored bytes a kind allows after the header, at least one: the rows,
- * or an lz stream for them, which is at most a flag byte per eight literals
- * longer. */
-static int bitmap_size_valid(uint32_t kind, uint32_t size, uint32_t payload)
+/* The stored bytes a kind allows for a bitmap of `decoded` bytes: the same,
+ * or an lz stream, which is at most a flag byte per eight literals longer.
+ * The decoded size holds at least a header and at most the cap. */
+static int bitmap_size_valid(uint32_t kind, uint32_t stored, uint32_t decoded)
 {
-    uint32_t stored = size - RVT_BMAP_HEADER_BYTES;
+    if (!stored || decoded <= RVT_BMAP_HEADER_BYTES || decoded > RVT_EXTENSION_BITMAP_MAX_BYTES)
+        return 0;
     if (kind == RVT_EXTENSION_BITMAP)
-        return stored == payload;
-    return stored <= payload + (payload + 7) / 8;
+        return stored == decoded;
+    return stored <= decoded + (decoded + 7) / 8;
 }
 
 /* Bytes the switch leaves in the file, read for the checksum only. */
@@ -164,51 +164,36 @@ static int checksum_skip(struct rv_file *file, uint32_t bytes, uint32_t *sum)
     return 1;
 }
 
-/* The extension bitmaps after the records into the index: each entry and the
- * header of its bitmap are checked and the header's place kept; the rows are
- * read into the checksum only and served on demand by the provider. */
+/* The extension bitmaps after the records into the index: each entry is
+ * checked and its payload's place kept; the payload is read into the checksum
+ * only and served as stored by the provider, since the core checks a bitmap
+ * once it has decoded it. */
 static int bitmaps_index(struct pack *pack, uint32_t *consumed, uint32_t *sum)
 {
     struct asset_entry *entries = main_module->assets_reserve(pack->extension_bitmaps);
     if (pack->extension_bitmaps && !entries)
         return 0;
     for (uint32_t i = 0; i < pack->extension_bitmaps; i++) {
-        uint32_t entry[4], payload, zero = 0;
-        uint8_t header[RVT_BMAP_HEADER_BYTES];
+        uint32_t entry[RVT_EXTENSION_BITMAP_BYTES / 4], zero = 0;
         if (pack->body_bytes - *consumed < sizeof entry ||
             !read_exact(pack->file, entry, sizeof entry))
             return 0;
         *consumed += sizeof entry;
         *sum = checksum(*sum, entry, sizeof entry);
         uint32_t owner = entry[0], asset = entry[1], kind = entry[2], size = entry[3];
-        uint32_t padding = (0u - size) & 3u;
+        uint32_t decoded = entry[4], padding = (0u - size) & 3u;
         if ((i && !asset_before(entries + i - 1, owner, asset)) ||
             (kind != RVT_EXTENSION_BITMAP && kind != RVT_EXTENSION_BITMAP_LZ) ||
-            size <= RVT_BMAP_HEADER_BYTES || size > pack->body_bytes - *consumed ||
-            padding > pack->body_bytes - *consumed - size ||
-            !read_exact(pack->file, header, sizeof header))
-            return 0;
-        *sum = checksum(*sum, header, sizeof header);
-        /* A raw Indexed8 payload starts with its colour count, which the
-         * header check needs; an lz one is checked when it is decoded. */
-        uint32_t skip = size - RVT_BMAP_HEADER_BYTES, word[1];
-        const uint8_t *rows = NULL;
-        if (kind == RVT_EXTENSION_BITMAP && skip >= sizeof word) {
-            if (!read_exact(pack->file, word, sizeof word))
-                return 0;
-            *sum = checksum(*sum, word, sizeof word);
-            skip -= sizeof word;
-            rows = (const uint8_t *)word;
-        }
-        if (!bmap_header_valid(header, rows, &payload) || !bitmap_size_valid(kind, size, payload))
+            !bitmap_size_valid(kind, size, decoded) || size > pack->body_bytes - *consumed ||
+            padding > pack->body_bytes - *consumed - size)
             return 0;
         entries[i].owner = owner;
         entries[i].asset = asset;
         entries[i].offset = pack->body + *consumed;
         entries[i].bytes = size;
-        entries[i].decoded = RVT_BMAP_HEADER_BYTES + payload;
+        entries[i].decoded = decoded;
         entries[i].kind = (uint16_t)kind;
-        if (!checksum_skip(pack->file, skip, sum) ||
+        if (!checksum_skip(pack->file, size, sum) ||
             (padding && (!read_exact(pack->file, &zero, padding) || zero)))
             return 0;
         *sum = checksum(*sum, &zero, padding);

@@ -12,8 +12,7 @@
 #include <stdint.h>
 
 /* One bitmap of the look: where it is in the look's file, the bytes stored
- * there (the BMap header, then the rows raw or as an lz stream) and the bytes
- * of the whole BMap they decode to. */
+ * there (the whole BMap raw or as one lz stream) and the bytes it decodes to. */
 struct asset_entry {
     uint32_t owner, asset, offset, bytes, decoded;
     uint16_t kind;
