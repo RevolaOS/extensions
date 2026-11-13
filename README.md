@@ -4,6 +4,7 @@ First-party RevolaOS extensions. One directory per extension, each with its own 
 
 | Directory | Extension | What it does | Default |
 |---|---|---|---|
+| `appearance` | Appearance | Dark Mode, Accent Color and themes from `/Revola/Themes/` that recolour the screens and replace the artwork | off |
 | `channels` | Channels | Rockbox's channel modes and a stereo width from 0 to 250 % | off |
 | `chapter-marks` | Chapter Marks | Leaves the chapter marks off the Now Playing bar when there are too many to tell apart | on |
 | `chapters` | Chapters | Chapter list of a podcast, iTunes U episode or the playing track; choosing one plays from there | on |

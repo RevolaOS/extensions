@@ -28,6 +28,7 @@ They need Python 3 and a C compiler with AddressSanitizer and UndefinedBehaviorS
 
 | Extension | Host tests cover |
 |---|---|
+| Appearance | the theme file reader (records, lz streams, derivations, recovery), the bitmaps a theme holds for extensions and the provider that serves them, the theme folder scan, the colour mapping of the stock screens, tinted art and hook binding |
 | Chapter Marks | the crowding rule |
 | Chapters | row, seek and play contracts |
 | Compressor, Crossfeed, Channels | an integer model of Rockbox's loops |
