@@ -8,7 +8,11 @@ Every extension builds against an unpacked revola SDK, from the [revola releases
 make -C <directory> SDK=/path/to/revola-sdk
 ```
 
-The result is `<directory>/build/<id>.rvx`. Copy it to `/Revola/Extensions/<id>.rvx` on the iPod, or onto an emulator disk with `ipodvm disk --copy`. `make SDK=...` at the top level builds every extension into `dist/<id>.rvx`, which is what a release packages; `make check SDK=...` there runs every host test suite.
+The result is `<directory>/build/<id>.rvx`. Copy it to `/Revola/Extensions/<id>.rvx` on the iPod, or onto an emulator disk with `ipodvm disk --copy`. `make SDK=... THEMES=...` at the top level builds every extension into `dist/<id>.rvx`, which is what a release packages; `make check SDK=...` there runs every host test suite.
+
+The top-level build also writes `dist/assets.json`, one record per bitmap asset of the core and of every extension (id, asset, format, size, whether it is a menu bitmap): the catalog a theme is checked against when it replaces extension artwork. The themes repository vendors it.
+
+`THEMES` names a checkout of the [themes repository](https://github.com/RevolaOS/themes) at the commit recorded in `appearance/themes.lock`. The appearance extension compiles its Classic dark artwork from `themes/classic` there and checks its vendored copies of the theme file header and the bitmap catalog against that checkout. Only `make -C appearance` needs it; without it the build keeps the Classic artwork it already has and fails only when there is none.
 
 Requirements are those of the SDK: GNU make, Rockbox's `arm-elf-eabi-` GCC 9.5.0 and Python 3.11+.
 
