@@ -17,7 +17,7 @@ static const struct rv_api *api;
 static rv_extension_handle self;
 
 static const struct rv_setting settings[] = {
-    RV_SETTING_INT(KEY_MODE, "Crossfeed", CROSSFEED_OFF, CROSSFEED_OFF, CROSSFEED_CUSTOM),
+    RV_SETTING_INT(KEY_MODE, "Crossfeed", MODE_DEFAULT, CROSSFEED_OFF, CROSSFEED_CUSTOM),
     RV_SETTING_INT(KEY_DIRECT, NULL, DIRECT_DEFAULT, 0, DIRECT_LABELS - 1),
     RV_SETTING_INT(KEY_CROSS, NULL, CROSS_DEFAULT, 0, CROSS_LABELS - 1),
     RV_SETTING_INT(KEY_HF, NULL, HF_DEFAULT, 0, HF_LABELS - 1),

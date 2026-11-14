@@ -5,7 +5,8 @@
  * channel, the other the channel fed across; in Custom the first is flat at
  * the direct gain and the second a shelf at the cross gain in the bass and the
  * attenuation above the cutoff, both lower by the precut. The wheel picks a
- * value, Select edits it and Menu steps back out. Every change plays at once. */
+ * value, Select edits it, holding Select puts it back to its default and Menu
+ * steps back out. Every change plays at once. */
 
 #include "labels.h"
 #include "rv_canvas.h"
@@ -24,6 +25,8 @@ static const uint8_t keys[PARAM_COUNT] = {KEY_MODE,  KEY_PRECUT, KEY_DIRECT,
                                           KEY_CROSS, KEY_HF,     KEY_CUTOFF};
 static const uint8_t counts[PARAM_COUNT] = {MODE_LABELS,  PRECUT_LABELS, DIRECT_LABELS,
                                             CROSS_LABELS, HF_LABELS,     CUTOFF_LABELS};
+static const uint8_t defaults[PARAM_COUNT] = {MODE_DEFAULT,  PRECUT_DEFAULT, DIRECT_DEFAULT,
+                                              CROSS_DEFAULT, HF_DEFAULT,     CUTOFF_DEFAULT};
 
 enum {
     PLOT_POINTS = 261,
@@ -143,6 +146,16 @@ static void wheel(int delta)
     compute_curve();
 }
 
+/* A held Select puts the highlighted value back to its default. */
+static void reset(void)
+{
+    if (value(editor.parameter) == defaults[editor.parameter])
+        return;
+    /* Main republishes from setting_changed, so the change plays at once. */
+    api->setting_set_int(self, keys[editor.parameter], defaults[editor.parameter]);
+    compute_curve();
+}
+
 static int input(const struct rv_context *ctx, const struct rv_input *input)
 {
     (void)ctx;
@@ -153,6 +166,9 @@ static int input(const struct rv_context *ctx, const struct rv_input *input)
         return 1;
     case RV_EDITOR_WHEEL:
         wheel(input->delta);
+        break;
+    case RV_EDITOR_RESET:
+        reset();
         break;
     default:
         break;

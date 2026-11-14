@@ -26,6 +26,7 @@ enum {
     HF_LABELS = 37,
     CUTOFF_LABELS = 16,
     PRECUT_LABELS = 14,  /* Auto, then 0.0 to -6.0 dB */
+    MODE_DEFAULT = CROSSFEED_OFF,
     DIRECT_DEFAULT = 9,  /* -1.5 dB */
     CROSS_DEFAULT = 12,  /* -6.0 dB */
     HF_DEFAULT = 16,     /* -16.0 dB */

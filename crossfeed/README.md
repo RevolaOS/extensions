@@ -4,7 +4,7 @@ Ported from Rockbox's crossfeed (`lib/rbcodec/dsp/crossfeed.c`) by Thom Johansen
 
 On headphones each ear hears one channel only, so a recording with an instrument hard-panned to one side is tiring to listen to. Crossfeed feeds a delayed, filtered part of each channel into the other, as sound from two speakers reaches both ears. It runs first on the shared [output stage](https://github.com/RevolaOS/revola/blob/main/docs/sdk/audio.md), so it applies to all audio.
 
-Settings > Crossfeed opens one screen: a plot of what each ear hears over the mode and the Custom values. The wheel picks a value, Select edits it and Menu steps back out. Every change plays at once, blended in over about 3 ms so a wheel step does not click, and the values keep their settings when the mode changes and across restarts.
+Settings > Crossfeed opens one screen: a plot of what each ear hears over the mode and the Custom values. The wheel picks a value, Select edits it, holding Select puts it back to its default and Menu steps back out. Every change plays at once, blended in over about 3 ms so a wheel step does not click, and the values keep their settings when the mode changes and across restarts.
 
 Mode is the first value:
 
@@ -33,4 +33,4 @@ Enabling it adds the Crossfeed row after Sound Check, with the mode as its capti
 | Default | off |
 | Memory | image only |
 | Settings | mode, the four shape values and the precut |
-| Minimum SDK | 1.42 |
+| Minimum SDK | 1.58 |
