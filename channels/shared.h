@@ -15,6 +15,7 @@ enum {
 enum {
     WIDTH_LABELS = 51,
     WIDTH_DEFAULT = 20, /* 100 % */
+    MODE_DEFAULT = CHANNELS_STEREO,
 };
 
 static inline unsigned int width_percent(int index) { return 5 * (unsigned int)index; }

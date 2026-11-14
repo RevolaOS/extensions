@@ -17,7 +17,7 @@ static const struct rv_api *api;
 static rv_extension_handle self;
 
 static const struct rv_setting settings[] = {
-    RV_SETTING_INT(KEY_MODE, "Channels", CHANNELS_STEREO, CHANNELS_STEREO, CHANNELS_CUSTOM),
+    RV_SETTING_INT(KEY_MODE, "Channels", MODE_DEFAULT, CHANNELS_STEREO, CHANNELS_CUSTOM),
     RV_SETTING_INT(KEY_WIDTH, NULL, WIDTH_DEFAULT, 0, WIDTH_LABELS - 1),
 };
 

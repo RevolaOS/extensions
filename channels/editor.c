@@ -2,8 +2,8 @@
 
 /* The Channels screen: the stereo image as a half disc, Left and Right at
  * its arms, with a lobe as wide as the chosen mode and width leave it. The
- * wheel picks Mode or Width, Select edits it and Menu steps back out. Every
- * change plays at once. */
+ * wheel picks Mode or Width, Select edits it, holding Select puts it back to
+ * its default and Menu steps back out. Every change plays at once. */
 
 #include "labels.h"
 #include "rv_canvas.h"
@@ -19,6 +19,7 @@ enum { DEPTH_PARAMETER, DEPTH_EDIT, DEPTHS };
 static const char *const titles[PARAM_COUNT] = {"Mode", "Width"};
 static const uint8_t keys[PARAM_COUNT] = {KEY_MODE, KEY_WIDTH};
 static const uint8_t counts[PARAM_COUNT] = {CHANNELS_MODES, WIDTH_LABELS};
+static const uint8_t defaults[PARAM_COUNT] = {MODE_DEFAULT, WIDTH_DEFAULT};
 
 enum {
     CENTRE_Y = 154, /* the listener; the baseline of the half disc */
@@ -200,6 +201,15 @@ static void wheel(int delta)
     api->setting_set_int(self, keys[editor.parameter], next);
 }
 
+/* A held Select puts the highlighted value back to its default. */
+static void reset(void)
+{
+    if (value(editor.parameter) == defaults[editor.parameter])
+        return;
+    /* Main republishes from setting_changed, so the change plays at once. */
+    api->setting_set_int(self, keys[editor.parameter], defaults[editor.parameter]);
+}
+
 static int input(const struct rv_context *ctx, const struct rv_input *input)
 {
     (void)ctx;
@@ -210,6 +220,9 @@ static int input(const struct rv_context *ctx, const struct rv_input *input)
         return 1;
     case RV_EDITOR_WHEEL:
         wheel(input->delta);
+        break;
+    case RV_EDITOR_RESET:
+        reset();
         break;
     default:
         break;
