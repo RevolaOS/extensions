@@ -50,9 +50,7 @@ static const struct rv_menu_entry entries[] = {
     RV_MENU_ENTRY(RV_MENU_MUSIC, RV_MUSIC_COVER_FLOW, RV_ROW_ACTION("Cover Grid", open_grid),
                   .shown_by = KEY_IN_MUSIC),
     RV_MENU_ENTRY(RV_MENU_MAIN, RV_MAIN_COVER_FLOW, RV_ROW_ACTION("Cover Grid", open_grid),
-                  .shown_by = KEY_IN_MAIN),
-    /* TODO: .bitmap for the main menu preview pane, once the core shows one
-     * for a Main entry. */
+                  .shown_by = KEY_IN_MAIN, .preview = RV_PREVIEW_MUSIC),
 };
 
 static const struct rv_setting settings[] = {
