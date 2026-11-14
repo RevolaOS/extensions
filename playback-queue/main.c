@@ -252,7 +252,7 @@ static const struct rv_menu_entry entries[] = {
     RV_MENU_ENTRY(RV_MENU_MUSIC, RV_MUSIC_AUDIOBOOKS, RV_ROW_PUSH("Queue", "queue"),
                   .shown_by = KEY_IN_MUSIC),
     RV_MENU_ENTRY(RV_MENU_MAIN, RV_MAIN_AUDIOBOOKS, RV_ROW_PUSH("Queue", "queue"),
-                  .shown_by = KEY_IN_MAIN),
+                  .shown_by = KEY_IN_MAIN, .preview = RV_PREVIEW_MUSIC),
 };
 
 static const struct rv_setting settings[] = {
