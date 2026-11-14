@@ -58,9 +58,12 @@ static inline int eq_gain_tenths(unsigned int choice)
 /* What main passes the editor screen as its argument. The editor module links
  * none of the filter code; it calls main's. */
 struct eq_link {
-    const uint8_t *values; /* the EQ_VALUES choices that play */
+    const uint8_t *values;   /* the EQ_VALUES choices that play */
+    const uint8_t *defaults; /* the choices a reset returns to */
     /* Plays one choice changed. Nothing changes when a band then has no stable filter. */
     void (*change)(unsigned int slot, unsigned int choice);
+    /* Plays a whole set of choices, under the same rule. */
+    void (*set)(const uint8_t *choices);
     void (*save)(void); /* stores the choices */
     /* What plays, at `points` frequencies from 20 Hz to 20 kHz evenly spaced in
      * octaves, in tenths of a decibel. Returns the precut applied, in tenths

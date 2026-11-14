@@ -55,13 +55,18 @@ static void load(void)
     }
 }
 
+static void set(const uint8_t *choices)
+{
+    if (eq_publish(choices))
+        memcpy(values, choices, EQ_VALUES);
+}
+
 static void change(unsigned int slot, unsigned int choice)
 {
     uint8_t trial[EQ_VALUES];
     memcpy(trial, values, EQ_VALUES);
     trial[slot] = (uint8_t)choice;
-    if (eq_publish(trial))
-        memcpy(values, trial, EQ_VALUES);
+    set(trial);
 }
 
 static void save(void)
@@ -69,7 +74,7 @@ static void save(void)
     api->setting_write(self, KEY_VALUES, RV_SETTING_TYPE_BLOB, values, EQ_VALUES);
 }
 
-static const struct eq_link link = {values, change, save, eq_custom_response};
+static const struct eq_link link = {values, defaults, change, set, save, eq_custom_response};
 
 static void open_editor(const struct rv_context *ctx)
 {

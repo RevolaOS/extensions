@@ -2,9 +2,10 @@
 
 /* The Custom EQ editor: five gain bars over a row of the selected band's
  * parameters. The wheel picks a band; Select moves into the parameters and
- * then into editing one, Menu steps back out. Every change plays at once
- * through the link main passed as the screen's argument. The hold switch
- * shows the response curve of what plays.
+ * then into editing one, holding Select puts what is highlighted back to its
+ * default, Menu steps back out. Every change plays at once through the link
+ * main passed as the screen's argument. The hold switch shows the response
+ * curve of what plays.
  *
  * Adapted from RepriseOS payload/eq_canvas.c (d640115, 93f6a45) by lgreitis. */
 
@@ -227,6 +228,28 @@ static void wheel(const struct rv_context *ctx, int delta)
     }
 }
 
+/* A held Select puts what is highlighted back to its default: a band with its
+ * four parameters, or at the parameter levels the one parameter, Precut
+ * included. One publish. */
+static void reset(const struct rv_context *ctx)
+{
+    uint8_t trial[EQ_VALUES];
+    unsigned int first, count;
+    if (editor.input.depth == DEPTH_BAND) {
+        first = eq_slot((unsigned int)editor.band, EQ_TYPE);
+        count = EQ_PARAMETERS - 1;
+    } else {
+        first = slot(editor.band, editor.parameter);
+        count = 1;
+    }
+    if (!memcmp(link(ctx)->values + first, link(ctx)->defaults + first, count))
+        return;
+    memcpy(trial, link(ctx)->values, EQ_VALUES);
+    memcpy(trial + first, link(ctx)->defaults + first, count);
+    link(ctx)->set(trial);
+    editor.dirty = 1;
+}
+
 static int input(const struct rv_context *ctx, const struct rv_input *input)
 {
     if (input->kind == RV_INPUT_HOLD) {
@@ -245,6 +268,9 @@ static int input(const struct rv_context *ctx, const struct rv_input *input)
             return 1;
         case RV_EDITOR_WHEEL:
             wheel(ctx, input->delta);
+            break;
+        case RV_EDITOR_RESET:
+            reset(ctx);
             break;
         default:
             save(ctx);
