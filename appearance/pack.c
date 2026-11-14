@@ -151,6 +151,12 @@ static int bitmap_size_valid(uint32_t kind, uint32_t stored, uint32_t decoded)
     return stored <= decoded + (decoded + 7) / 8;
 }
 
+/* An extension bitmap's tint word: none, or a role without coverage bits. */
+static int tint_word_valid(uint32_t tint)
+{
+    return tint == RVT_TINT_NONE || (tint >= RVT_TINT_ROLE && tint < RVT_TINT_ROLE + RVT_ROLES);
+}
+
 /* Bytes the switch leaves in the file, read for the checksum only. */
 static int checksum_skip(struct rv_file *file, uint32_t bytes, uint32_t *sum)
 {
@@ -182,11 +188,11 @@ static int bitmaps_index(struct pack *pack, uint32_t *consumed, uint32_t *sum)
         *consumed += sizeof entry;
         *sum = checksum(*sum, entry, sizeof entry);
         uint32_t owner = entry[0], asset = entry[1], kind = entry[2], size = entry[3];
-        uint32_t decoded = entry[4], padding = (0u - size) & 3u;
+        uint32_t decoded = entry[4], tint = entry[5], padding = (0u - size) & 3u;
         if ((i && !asset_before(entries + i - 1, owner, asset)) ||
             (kind != RVT_EXTENSION_BITMAP && kind != RVT_EXTENSION_BITMAP_LZ) ||
-            !bitmap_size_valid(kind, size, decoded) || size > pack->body_bytes - *consumed ||
-            padding > pack->body_bytes - *consumed - size)
+            !bitmap_size_valid(kind, size, decoded) || !tint_word_valid(tint) ||
+            size > pack->body_bytes - *consumed || padding > pack->body_bytes - *consumed - size)
             return 0;
         entries[i].owner = owner;
         entries[i].asset = asset;
@@ -194,6 +200,7 @@ static int bitmaps_index(struct pack *pack, uint32_t *consumed, uint32_t *sum)
         entries[i].bytes = size;
         entries[i].decoded = decoded;
         entries[i].kind = (uint16_t)kind;
+        entries[i].tint = (uint8_t)tint;
         if (!checksum_skip(pack->file, size, sum) ||
             (padding && (!read_exact(pack->file, &zero, padding) || zero)))
             return 0;

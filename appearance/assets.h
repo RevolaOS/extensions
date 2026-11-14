@@ -12,10 +12,13 @@
 #include <stdint.h>
 
 /* One bitmap of the look: where it is in the look's file, the bytes stored
- * there (the whole BMap raw or as one lz stream) and the bytes it decodes to. */
+ * there (the whole BMap raw or as one lz stream), the bytes it decodes to and
+ * the tint word of the pack's table: RVT_TINT_NONE, or RVT_TINT_ROLE plus the
+ * role the provider paints the decoded picture in. */
 struct asset_entry {
     uint32_t owner, asset, offset, bytes, decoded;
     uint16_t kind;
+    uint8_t tint;
 };
 
 /* The index order: by owner, then asset. */

@@ -99,6 +99,32 @@ static void colorize(uint8_t *bgra, const uint8_t *color)
     paint(bgra, shaded);
 }
 
+int tint_bmap(void *bmap, uint32_t bytes, const uint8_t *color)
+{
+    uint8_t *b = bmap;
+    uint32_t format = le16(b + BMap_format), stride = le16(b + BMap_stride);
+    const uint8_t *bounds = b + BMap_bounds;
+    uint32_t height = le32(bounds + 8) - le32(bounds), width = le32(bounds + 12) - le32(bounds + 4);
+    uint8_t *rows = b + BMap_payload;
+    if (bytes < BMap_payload || le32(b + BMap_payload_bytes) > bytes - BMap_payload)
+        return 0;
+    if (format == BMapFormat_Indexed8) {
+        uint32_t colors = le32(rows);
+        if (le32(b + BMap_payload_bytes) < 4 + colors * 4)
+            return 0;
+        each_entry(rows + 4, colors, paint, color);
+        return 1;
+    }
+    if (format != BMapFormat_BGRA8888 || le16(b + BMap_depth) != 32 ||
+        width * 4 > stride || height * stride > le32(b + BMap_payload_bytes))
+        return 0;
+    for (; height--; rows += stride)
+        for (uint8_t *p = rows, *end = rows + width * 4; p < end; p += 4)
+            if (p[3])
+                paint(p, color);
+    return 1;
+}
+
 /* The pixel data of a bitmap context's bitmap, or NULL. */
 static const uint8_t *context_pixels(const void *context)
 {

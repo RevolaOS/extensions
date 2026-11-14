@@ -150,7 +150,9 @@ static void finish(enum switch_result result, int accent, enum look_pane pane)
     switcher_unload();
     settings_write_back();
     apply_roles();
-    if (!accent && !assets_bind() && !problem) {
+    /* Binding again after an accent change makes the core decode the
+     * pictures on screen anew, so tinted extension bitmaps take the colour. */
+    if (!assets_bind() && !accent && !problem) {
         problem = "Artwork held by another extension";
         problem_at = PANE_THEME;
     }

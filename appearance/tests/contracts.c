@@ -477,6 +477,7 @@ static void prefix_plain(uint8_t *p)
 struct asset_payload {
     uint32_t owner, asset, kind, size, decoded;
     const uint8_t *payload;
+    uint32_t tint;
 };
 static const struct asset_payload *asset_table;
 static uint32_t asset_table_count;
@@ -509,6 +510,7 @@ static uint32_t write_pack(uint8_t *pack, const struct rec *recs, uint32_t count
         put32(p + 8, a->kind);
         put32(p + 12, a->size);
         put32(p + 16, a->decoded);
+        put32(p + 20, a->tint);
         p += RVT_EXTENSION_BITMAP_BYTES;
         memcpy(p, a->payload, a->size);
         memset(p + a->size, 0, PAD(a->size));
@@ -1395,10 +1397,10 @@ static void assets_contracts(void)
     struct built b;
     asset_payloads();
     const struct asset_payload four[4] = {
-        {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, MENU_BMAP_BYTES, menu_a},
-        {OWNER_A, 9, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz, MENU_BMAP_BYTES, menu_lz},
-        {OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof small, PALETTED_BYTES, small},
-        {OWNER_B, 2, RVT_EXTENSION_BITMAP_LZ, sizeof small_lz, PALETTED_BYTES, small_lz},
+        {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, MENU_BMAP_BYTES, menu_a, 0},
+        {OWNER_A, 9, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz, MENU_BMAP_BYTES, menu_lz, 0},
+        {OWNER_B, 1, RVT_EXTENSION_BITMAP, sizeof small, PALETTED_BYTES, small, 0},
+        {OWNER_B, 2, RVT_EXTENSION_BITMAP_LZ, sizeof small_lz, PALETTED_BYTES, small_lz, 0},
     };
 
     /* A good table: one entry per asset, in order, each payload's offset in
@@ -1458,6 +1460,20 @@ static void assets_contracts(void)
     bad[1].decoded = RVT_EXTENSION_BITMAP_MAX_BYTES; /* at it: the core decides */
     with_assets(bad, 4, &b);
     assert(apply(&b, assets) && live_count == 4);
+    /* A tint word names a role without coverage bits; the index keeps it. */
+    memcpy(bad, four, sizeof bad);
+    bad[2].tint = RVT_TINT_ROLE + RVT_ROLE_TEXT;
+    with_assets(bad, 4, &b);
+    assert(apply(&b, assets) && live[2].tint == RVT_TINT_ROLE + RVT_ROLE_TEXT && !live[3].tint);
+    bad[2].tint = RVT_TINT_ROLE + RVT_ROLES;
+    with_assets(bad, 4, &b);
+    assert(!apply(&b, assets));
+    bad[2].tint = RVT_TINT_ROLE + RVT_ROLE_TEXT | RVT_TINT_DARKNESS;
+    with_assets(bad, 4, &b);
+    assert(!apply(&b, assets));
+    bad[2].tint = RVT_TINT_ROLE + RVT_ROLE_TEXT | RVT_TINT_SOLID;
+    with_assets(bad, 4, &b);
+    assert(!apply(&b, assets));
     memcpy(bad, four, sizeof bad);
     bad[1].size = 0;
     with_assets(bad, 4, &b);
@@ -1490,7 +1506,7 @@ static void assets_contracts(void)
     static struct asset_payload many[RVT_EXTENSION_BITMAPS_MAX + 1];
     for (uint32_t i = 0; i < RVT_EXTENSION_BITMAPS_MAX + 1; i++)
         many[i] = (struct asset_payload){OWNER_A, i, RVT_EXTENSION_BITMAP_LZ, sizeof menu_lz,
-                                         MENU_BMAP_BYTES, menu_lz};
+                                         MENU_BMAP_BYTES, menu_lz, 0};
     with_assets(many, RVT_EXTENSION_BITMAPS_MAX + 1, &b);
     assert(!apply(&b, assets));
     with_assets(many, RVT_EXTENSION_BITMAPS_MAX, &b);
@@ -1567,6 +1583,42 @@ static void assets_contracts(void)
     assert(!adjust(OWNER_A, 7, block, MENU_BMAP_BYTES));
     assert(!memcmp(block + HEADER, menu_a + HEADER, MENU_ROWS));
     style_reset();
+
+    /* A tinted replacement: the decoded picture's palette entries take the
+     * role's colour and keep their alpha; a Settings icon under a tint word
+     * is left to the core, which draws it in the icon tint anyway. */
+    struct asset_payload tinted[4];
+    memcpy(tinted, four, sizeof tinted);
+    tinted[2].tint = RVT_TINT_ROLE + RVT_ROLE_TEXT;
+    tinted[0].tint = RVT_TINT_ROLE + RVT_ROLE_TEXT;
+    with_assets(tinted, 4, &b);
+    assert(apply(&b, assets));
+    static const uint8_t text_role[RVT_ROLES][3] = {[RVT_ROLE_TEXT] = {0x12, 0x34, 0x56}};
+    prefix_custom(prefix, text_role, 0, 0, NULL);
+    style_set(prefix);
+    memcpy(block, small, sizeof small);
+    assert(adjust(OWNER_B, 1, block, PALETTED_BYTES));
+    static const uint8_t painted_light[4] = {0x56, 0x34, 0x12, 255};
+    assert(!memcmp(block + HEADER + 4, painted_light, 4) && block[HEADER + 11] == ICON[3] &&
+           !memcmp(block + HEADER + 8, "\x56\x34\x12", 3) &&
+           !memcmp(block + HEADER + 12, small + HEADER + 12, 8));
+    memcpy(block, small, sizeof small);
+    assert(!adjust(OWNER_B, 2, block, PALETTED_BYTES) && !memcmp(block, small, sizeof small));
+    memcpy(block, menu_a, sizeof block);
+    assert(!adjust(OWNER_A, 5, block, MENU_BMAP_BYTES) && !memcmp(block, menu_a, sizeof block));
+    /* BGRA rows: covered pixels are painted, clear ones stay. */
+    static uint8_t argb[HEADER + 16 * 2];
+    bmap(argb, BMapFormat_BGRA8888, 16, 32, 4, 2, sizeof argb);
+    for (uint32_t i = 0; i < 8; i++)
+        memcpy(argb + HEADER + i * 4, i & 1 ? "\x01\x02\x03\x80" : "\x09\x09\x09\x00", 4);
+    assert(tint_bmap(argb, sizeof argb, style_color(RVT_ROLE_TEXT)));
+    for (uint32_t i = 0; i < 8; i++)
+        assert(!memcmp(argb + HEADER + i * 4, i & 1 ? "\x56\x34\x12\x80" : "\x09\x09\x09\x00", 4));
+    put16(argb, BMapFormat_RGB565);
+    assert(!tint_bmap(argb, sizeof argb, style_color(RVT_ROLE_TEXT)));
+    style_reset();
+    with_assets(four, 4, &b);
+    assert(apply(&b, assets));
 
     /* The end of disk mode checks the theme file's header: the same file
      * keeps the index, another under the id or none ends it. */
@@ -2298,7 +2350,7 @@ static void look_contracts(void)
      * the index; the end of disk mode keeps both until another file turns up
      * under the id; a provider another extension holds is said under Theme. */
     struct built with, flat, swapped;
-    const struct asset_payload one = {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, MENU_BMAP_BYTES, menu_a};
+    const struct asset_payload one = {OWNER_A, 5, RVT_EXTENSION_BITMAP, sizeof menu_a, MENU_BMAP_BYTES, menu_a, 0};
     with_assets(&one, 1, &with);
     provided = &with;
     unreadable = NULL;

@@ -18,6 +18,10 @@ const uint8_t *tint_mask_color(const void *view);
 void tint_highlight_begin(const void *view, const void *context);
 void tint_marker_highlight_begin(const void *cell, const void *context);
 void tint_highlight_end(void);
+/* Paints a decoded extension picture, a whole BMap of `bytes`, in `color`:
+ * the entries of an Indexed8 palette or the covered pixels of BGRA8888 rows,
+ * keeping their alpha. 0 for any other format. */
+int tint_bmap(void *bmap, uint32_t bytes, const uint8_t *color);
 /* Rewrites the palettes of tinted paletted bitmaps and the pixels of tinted
  * ARGB bitmaps with their tint colour, and picks the label colours that
  * contrast with the artwork; after a switch or accent change, once the pack's

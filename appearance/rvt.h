@@ -19,14 +19,17 @@
  * catalog keys them; the core's own assets are owned by the hash of "revola");
  * a bitmap payload is the whole BMap as the iPod decodes it, its 28-byte header
  * raw and its rows raw or as one lz stream decoding to the header's payload
- * length, the stream at most the payload plus one flag byte per 8. The relight
- * arithmetic and the bounds of its words are in docs/format.md under Relight. */
+ * length, the stream at most the payload plus one flag byte per 8; a tinted
+ * extension bitmap is an Indexed8 or BGRA8888 picture, never a Settings icon,
+ * whose palette entries or pixels the reader paints in its role, keeping
+ * their alpha. The relight arithmetic and the bounds of its words are in
+ * docs/format.md under Relight. */
 
 #ifndef RVT_H
 #define RVT_H
 
 #define RVT_MAGIC 0x30545652u /* "RVT0" */
-#define RVT_VERSION 2
+#define RVT_VERSION 3
 #define RVT_HEADER_BYTES 128
 #define RVT_FINGERPRINT_BYTES 8
 #define RVT_ID_BYTES 32
@@ -165,10 +168,12 @@ enum rvt_relight {
 /* Alias records are applied after the other records of a pack. */
 #define RVT_ALIASES_MAX 16
 
-/* Extension bitmaps: {u32 owner, u32 asset, u32 kind, u32 stored, u32 decoded}
- * then the payload, 4-byte padded: the whole BMap, header and rows, raw or as
- * one lz stream of `stored` bytes that decodes to `decoded`. */
-#define RVT_EXTENSION_BITMAP_BYTES 20
+/* Extension bitmaps: {u32 owner, u32 asset, u32 kind, u32 stored, u32 decoded,
+ * u32 tint} then the payload, 4-byte padded: the whole BMap, header and rows,
+ * raw or as one lz stream of `stored` bytes that decodes to `decoded`. The
+ * tint word is RVT_TINT_NONE, or RVT_TINT_ROLE plus an rvt_role without
+ * coverage bits for a picture drawn in that role. */
+#define RVT_EXTENSION_BITMAP_BYTES 24
 #define RVT_BMAP_HEADER_BYTES 28
 enum rvt_extension_kind {
     RVT_EXTENSION_BITMAP = 1,

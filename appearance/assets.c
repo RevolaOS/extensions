@@ -9,6 +9,7 @@
 #include "rvt.h"
 #include "style.h"
 #include "theme.h"
+#include "tint.h"
 #include <stddef.h>
 
 static struct asset_entry *live;    /* the active look's index, which the provider answers from */
@@ -98,12 +99,14 @@ static int menu_bitmap(const uint8_t *b, uint32_t bytes)
            le32(b + BMap_payload_bytes) == ICON_STRIDE * ICON_HEIGHT;
 }
 
-/* The extension's own bitmap, decoded: under a flat-icon look a Settings
- * icon loses its reflection. */
+/* A decoded bitmap, the look's replacement or the extension's own: a tinted
+ * replacement picture is painted in its role; under a flat-icon look a
+ * Settings icon loses its reflection. */
 static int adjust(uint32_t owner, uint32_t asset, void *bmap, uint32_t bytes)
 {
-    (void)owner;
-    (void)asset;
+    const struct asset_entry *entry = find(owner, asset);
+    if (entry && entry->tint != RVT_TINT_NONE && !menu_bitmap(bmap, bytes))
+        return tint_bmap(bmap, bytes, style_color((enum rvt_role)(entry->tint - RVT_TINT_ROLE)));
     if (!(style_flags() & RVT_FLAG_FLAT_ICONS) || !menu_bitmap(bmap, bytes))
         return 0;
     memset((uint8_t *)bmap + BMap_payload + ICON_ART_ROWS * ICON_STRIDE, 0,
