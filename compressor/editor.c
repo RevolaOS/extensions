@@ -2,7 +2,8 @@
 
 /* The Compressor screen: the output level for every input level, as the six
  * values shape it, over two rows of the values. The wheel picks a value,
- * Select edits it and Menu steps back out. Every change plays at once. */
+ * Select edits it, holding Select puts it back to its default and Menu steps
+ * back out. Every change plays at once. */
 
 #include "labels.h"
 #include "rv_canvas.h"
@@ -21,6 +22,8 @@ static const uint8_t keys[PARAM_COUNT] = {KEY_THRESHOLD, KEY_RATIO, KEY_KNEE,
                                           KEY_MAKEUP, KEY_ATTACK, KEY_RELEASE};
 static const uint8_t counts[PARAM_COUNT] = {THRESHOLD_LABELS, RATIO_LABELS, KNEE_LABELS,
                                             MAKEUP_LABELS, ATTACK_LABELS, RELEASE_LABELS};
+static const uint8_t defaults[PARAM_COUNT] = {THRESHOLD_DEFAULT, RATIO_DEFAULT, KNEE_DEFAULT,
+                                              MAKEUP_DEFAULT, ATTACK_DEFAULT, RELEASE_DEFAULT};
 
 enum {
     PLOT_POINTS = 259, /* -36 dB to 0 dB of input: 86 px per 12 dB */
@@ -194,6 +197,16 @@ static void wheel(int delta)
     compute_points();
 }
 
+/* A held Select puts the highlighted value back to its default. */
+static void reset(void)
+{
+    if (value(editor.parameter) == defaults[editor.parameter])
+        return;
+    /* Main republishes from setting_changed, so the change plays at once. */
+    api->setting_set_int(self, keys[editor.parameter], defaults[editor.parameter]);
+    compute_points();
+}
+
 static int input(const struct rv_context *ctx, const struct rv_input *input)
 {
     (void)ctx;
@@ -204,6 +217,9 @@ static int input(const struct rv_context *ctx, const struct rv_input *input)
         return 1;
     case RV_EDITOR_WHEEL:
         wheel(input->delta);
+        break;
+    case RV_EDITOR_RESET:
+        reset();
         break;
     default:
         break;

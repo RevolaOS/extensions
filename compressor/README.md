@@ -4,7 +4,7 @@ Ported from Rockbox's compressor (`lib/rbcodec/dsp/compressor.c`) by Jeffrey Goo
 
 A compressor turns the loud parts of a recording down so the quiet parts can be heard at the same volume: classical and jazz on a train, films and audiobooks at night. It runs after Channels on the shared [output stage](https://github.com/RevolaOS/revola/blob/main/docs/sdk/audio.md), so it applies to all audio.
 
-Settings > Compressor opens a plot of the output level for every input level: a straight line while nothing changes, bending at the threshold once the compressor works. The six values sit in two rows under the plot: the wheel picks one, Select edits it and Menu steps back out. Every change plays at once, blended in over about 3 ms so a wheel step does not click, and the values keep across restarts; switching on or off blends the 3 ms look-ahead in or out. The Settings pane says Off or On.
+Settings > Compressor opens a plot of the output level for every input level: a straight line while nothing changes, bending at the threshold once the compressor works. The six values sit in two rows under the plot: the wheel picks one, Select edits it, holding Select puts it back to its default and Menu steps back out. Every change plays at once, blended in over about 3 ms so a wheel step does not click, and the values keep across restarts; switching on or off blends the 3 ms look-ahead in or out. The Settings pane says Off or On.
 
 | Value | Range | Default | What it does |
 |---|---|---|---|
@@ -24,4 +24,4 @@ Enabling it adds the Compressor row after Sound Check. With Threshold at Off it 
 | Default | off |
 | Memory | image only |
 | Settings | the six values |
-| Minimum SDK | 1.42 |
+| Minimum SDK | 1.58 |
